@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# 运行时数据（HDF5 行情库、SQLite、配置）
+/data_root/
+
+# Node
+node_modules/
+dist/
+*.local
+
+# 编辑器 / 系统
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# 截图等临时产物
+.openchamber/

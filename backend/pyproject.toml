@@ -1,0 +1,44 @@
+[project]
+name = "hikyuu-frontend-backend"
+version = "0.1.0"
+description = "Backtest API for Hikyuu quant framework"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "hikyuu==3.0.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "h5py>=3.11",
+    "tables>=3.10",
+    "matplotlib>=3.9",
+    "akshare>=1.20",
+]
+
+[dependency-groups]
+dev = ["httpx2>=2.0"]
+
+# Hikyuu 强制依赖 PySide6（435MB Qt GUI 框架），服务端完全用不上。
+# 这里从依赖树中排除，再用 `uv pip install hikyuu --no-deps` 单独装核心。
+# 见 README「环境准备」。
+[tool.uv]
+# Hikyuu 声明了 PySide6 依赖（Qt GUI 框架，435MB），服务端完全用不上。
+# 通过 exclude-dependencies 在解析阶段就把它（及其子包）剔除，
+# 这样 `uv sync` 就能稳定地只安装回测所需的核心依赖。
+exclude-dependencies = [
+    "pyside6",
+    "pyside6-addons",
+    "pyside6-essentials",
+    "pyside6-webengine",
+    "pyside6-pdf",
+    "shiboken6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
