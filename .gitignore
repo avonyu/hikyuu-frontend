@@ -21,3 +21,5 @@ dist/
 
 # 截图等临时产物
 .openchamber/
+
+*.log
