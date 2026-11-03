@@ -3,7 +3,6 @@ import {
   AreaSeries,
   createChart,
   type IChartApi,
-  type IPriceLine,
   type ISeriesApi,
   type Time,
 } from 'lightweight-charts'
@@ -29,7 +28,6 @@ export default function EquityChart({
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
-  const priceLineRef = useRef<IPriceLine | null>(null)
 
   useEffect(() => {
     const container = containerRef.current
@@ -75,7 +73,6 @@ export default function EquityChart({
       chart.remove()
       chartRef.current = null
       seriesRef.current = null
-      priceLineRef.current = null
     }
   }, [height])
 
@@ -90,11 +87,10 @@ export default function EquityChart({
       .filter((p) => Number.isFinite(p.value))
     series.setData(points)
 
-    // 初始资金基准线：先移除上一条，否则每次回测都会新增一条
-    if (priceLineRef.current) {
-      series.removePriceLine(priceLineRef.current)
-    }
-    priceLineRef.current = series.createPriceLine({
+    // 初始资金基准线：先清掉上一次创建的，否则每次回测都会叠加一条
+    // （按 priceLines() 清而不是存 ref，HMR / 图表重建后也不会漏）
+    series.priceLines().forEach((line) => series.removePriceLine(line))
+    series.createPriceLine({
       price: initCash,
       color: '#484f58',
       lineWidth: 1,
