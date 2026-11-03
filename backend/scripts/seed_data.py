@@ -61,23 +61,34 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     parser = argparse.ArgumentParser(description="初始化回测数据")
+    parser.add_argument(
+        "symbols_pos",
+        nargs="*",
+        metavar="SYMBOL",
+        help="标的代码（位置参数，等价于 --symbols，如 sh563360）",
+    )
     parser.add_argument("--symbols", default="", help="逗号分隔的标的，如 sh510300,sh600519")
     parser.add_argument(
         "--kind",
         default=None,
         type=str.upper,
         choices=list(KINDS),
-        help="强制证券类别；默认按代码段自动判定",
+        help="强制证券类别 ETF/STOCK/INDEX；默认按代码段自动判定",
     )
-    parser.add_argument("--start", default="20180101", help="起始日期 YYYYMMDD")
-    parser.add_argument("--end", default="20241231", help="结束日期 YYYYMMDD")
-    parser.add_argument("--incremental", action="store_true", help="只补拉缺口数据")
+    parser.add_argument("--start", default="20160101", help="起始日期 YYYYMMDD")
+    parser.add_argument("--end", default="20251231", help="结束日期 YYYYMMDD（增量更新到最新时传当天）")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="只补拉 last_date 之后的数据，并与现有数据按日期合并（不丢历史）",
+    )
     parser.add_argument("--defaults", action="store_true", help="额外导入默认 ETF 列表")
     args = parser.parse_args()
 
     symbols: list[tuple[str, str, str, str]] = []
     try:
-        parsed = parse_symbols(args.symbols)
+        raw_symbols = ",".join([args.symbols, *args.symbols_pos])
+        parsed = parse_symbols(raw_symbols)
         for market, code in parsed:
             kind, reason = resolve_kind(market, code, args.kind)
             symbols.append((market, code, "", kind))
