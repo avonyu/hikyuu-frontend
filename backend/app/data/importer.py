@@ -18,6 +18,10 @@ import pandas as pd
 import tables as tb
 
 
+# 统一的日线列顺序（与 sources.COLUMNS 一致）
+KDATA_COLUMNS = ["open", "high", "low", "close", "volume", "amount"]
+
+
 class H5Record(tb.IsDescription):
     """必须与 hikyuu.data.common_h5.H5Record 字段与类型完全一致。"""
 
@@ -69,11 +73,93 @@ def _open_h5(path: Path):
     return handle, group
 
 
-def write_kdata(path: Path, market: str, code: str, df: pd.DataFrame) -> int:
-    """写入单个标的的日线，返回写入行数。
+def read_kdata(path: Path, market: str, code: str) -> pd.DataFrame | None:
+    """读回某个标的的日线，还原成与写入前一致的 DataFrame。
+
+    价格 /1000、成交额 *1000、成交量取整，和 write_kdata 的量化互逆，
+    所以「读出再写回」不会让数值漂移。
+    """
+    if not path.exists():
+        return None
+    handle = tb.open_file(path, "r")
+    try:
+        try:
+            group = handle.get_node("/", "data")
+            table = handle.get_node(group, market.upper() + code)
+        except tb.NoSuchNodeError:
+            return None
+        if table.nrows == 0:
+            return None
+
+        dates = []
+        rows = []
+        for record in table.iterrows():
+            stamp = int(record["datetime"])
+            dates.append(
+                pd.Timestamp(
+                    year=stamp // 10**8,
+                    month=stamp // 10**6 % 100,
+                    day=stamp // 10**4 % 100,
+                )
+            )
+            rows.append(
+                {
+                    "open": int(record["openPrice"]) / 1000,
+                    "high": int(record["highPrice"]) / 1000,
+                    "low": int(record["lowPrice"]) / 1000,
+                    "close": int(record["closePrice"]) / 1000,
+                    "volume": float(int(record["transCount"])),
+                    "amount": float(int(record["transAmount"])) * 1000,
+                }
+            )
+        df = pd.DataFrame(rows, index=pd.DatetimeIndex(dates), columns=KDATA_COLUMNS)
+        return df.sort_index()
+    finally:
+        handle.close()
+
+
+def merge_kdata(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFrame:
+    """按日期合并两段日线；同一天以 fresh 为准，返回升序结果。"""
+    merged = pd.concat([existing, fresh])
+    merged = merged[~merged.index.duplicated(keep="last")]
+    return merged.sort_index()
+
+
+def kdata_bounds(path: Path, market: str, code: str) -> tuple[str, str] | None:
+    """读取某标的的首末日期（YYYY-MM-DD），只碰两行，不解析整表。"""
+    if not path.exists():
+        return None
+    handle = tb.open_file(path, "r")
+    try:
+        try:
+            group = handle.get_node("/", "data")
+            table = handle.get_node(group, market.upper() + code)
+        except tb.NoSuchNodeError:
+            return None
+        if table.nrows == 0:
+            return None
+
+        def fmt(stamp: int) -> str:
+            return f"{stamp // 10**8:04d}-{stamp // 10**6 % 100:02d}-{stamp // 10**4 % 100:02d}"
+
+        return fmt(int(table[0]["datetime"])), fmt(int(table[-1]["datetime"]))
+    finally:
+        handle.close()
+
+
+def write_kdata(path: Path, market: str, code: str, df: pd.DataFrame,
+                merge: bool = False) -> int:
+    """写入单个标的的日线，返回写入后该表的总行数。
 
     df 要求 index 为 DatetimeIndex，列为 open/high/low/close/volume/amount。
+    merge=True 时先读回已有数据、按日期合并（新数据覆盖同一天），再整表重写，
+    因此可以安全地用于增量更新。
     """
+    if merge:
+        existing = read_kdata(path, market, code)
+        if existing is not None and not existing.empty:
+            df = merge_kdata(existing, df)
+
     handle, group = _open_h5(path)
     table_name = market.upper() + code
     try:

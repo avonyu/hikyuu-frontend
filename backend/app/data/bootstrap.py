@@ -14,6 +14,7 @@ from app.data import catalog
 from app.data.importer import (
     StockMeta,
     create_stock_db,
+    kdata_bounds,
     list_registered,
     register_stock,
     write_kdata,
@@ -78,11 +79,12 @@ def seed_symbol(market: str, code: str, name: str, kind: str,
         if df.empty:
             return SeedResult(symbol, name, 0, None, None, skipped=True)
 
-        rows = write_kdata(_h5_path(market), market, code, df)
+        rows = write_kdata(_h5_path(market), market, code, df, merge=incremental)
         register_stock(conn, StockMeta(market, code, name, kind))
 
-        first = df.index[0].strftime("%Y-%m-%d")
-        last = df.index[-1].strftime("%Y-%m-%d")
+        # 增量是「合并」写入，df 只是新拉的那一段，首末日期要以落盘结果为准
+        bounds = kdata_bounds(_h5_path(market), market, code)
+        first, last = bounds if bounds else (None, None)
         catalog.upsert(symbol, market, code, name, kind, last_date=last)
         return SeedResult(symbol, name, rows, first, last)
     except DataSourceError as exc:
