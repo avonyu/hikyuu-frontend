@@ -43,6 +43,23 @@ export function fetchStrategies() {
   return request<StrategyInfo[]>('/strategies')
 }
 
+/**
+ * 只算指标叠加线，不跑回测。
+ *
+ * 勾选指标后调用它即可实时重画叠加线，值与回测结果里的完全一致。
+ */
+export function fetchOverlays(payload: {
+  symbol: string
+  start: string
+  end: string
+  overlays: { type: string; n: number; key?: string | null }[]
+}) {
+  return request<Record<string, number[]>>('/overlays', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function refreshSymbols() {
   return request<{ refreshed: number; results: unknown[] }>('/symbols/refresh', {
     method: 'POST',

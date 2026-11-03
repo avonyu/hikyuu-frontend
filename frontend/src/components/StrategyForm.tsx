@@ -11,6 +11,7 @@ import {
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Label } from '@/components/ui/label'
 import { NumberInput } from '@/components/ui/number-input'
@@ -55,11 +56,18 @@ interface Props {
   running: boolean
 }
 
-const OVERLAY_TYPES = [
-  { value: 'ma', label: 'MA' },
-  { value: 'ema', label: 'EMA' },
-  { value: 'rsi', label: 'RSI' },
-  { value: 'macd', label: 'MACD' },
+/** 可叠加的指标：MA/EMA/RSI 各三档周期，MACD 固定一档 */
+const OVERLAY_OPTIONS = [
+  { type: 'ma', n: 5, label: 'MA5' },
+  { type: 'ma', n: 20, label: 'MA20' },
+  { type: 'ma', n: 60, label: 'MA60' },
+  { type: 'ema', n: 5, label: 'EMA5' },
+  { type: 'ema', n: 20, label: 'EMA20' },
+  { type: 'ema', n: 60, label: 'EMA60' },
+  { type: 'rsi', n: 5, label: 'RSI5' },
+  { type: 'rsi', n: 20, label: 'RSI20' },
+  { type: 'rsi', n: 60, label: 'RSI60' },
+  { type: 'macd', n: 12, label: 'MACD' },
 ]
 
 /** 0.2 -> 20，顺手抹掉浮点噪声 */
@@ -67,7 +75,8 @@ const toPercentValue = (ratio: number) => Number((ratio * 100).toFixed(2))
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-2">
+    // min-w-0：栅格/弹性子项默认 min-width:auto，长文本（如费率名）会把列撑破
+    <div className="flex min-w-0 flex-col gap-2">
       <Label>{label}</Label>
       {children}
     </div>
@@ -314,7 +323,7 @@ export default function StrategyForm({
             value={config.moneyType}
             onValueChange={(v) => set('moneyType', v as StrategyConfig['moneyType'])}
           >
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full min-w-0">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -330,7 +339,7 @@ export default function StrategyForm({
               onChange={(v) => set('count', v ?? 1)}
             />
           ) : (
-            <div className="relative">
+            <div className="relative min-w-0">
               <NumberInput
                 min={1}
                 max={100}
@@ -349,39 +358,23 @@ export default function StrategyForm({
       {/* 指标叠加 */}
       <div className="flex flex-col gap-2">
         <SectionTitle icon={<Activity className="size-3.5" />}>指标叠加</SectionTitle>
-        <div className="flex flex-wrap gap-1.5">
-          {OVERLAY_TYPES.flatMap((t) =>
-            t.value === 'macd'
-              ? [
-                  <Button
-                    key="macd"
-                    type="button"
-                    size="sm"
-                    variant={
-                      config.overlays.some((o) => o.type === 'macd') ? 'default' : 'secondary'
-                    }
-                    onClick={() => toggleOverlay('macd', 12)}
-                  >
-                    MACD
-                  </Button>,
-                ]
-              : [5, 20, 60].map((n) => (
-                  <Button
-                    key={`${t.value}${n}`}
-                    type="button"
-                    size="sm"
-                    variant={
-                      config.overlays.some((o) => o.type === t.value && o.n === n)
-                        ? 'default'
-                        : 'secondary'
-                    }
-                    onClick={() => toggleOverlay(t.value, n)}
-                  >
-                    {t.label}
-                    {n}
-                  </Button>
-                )),
-          )}
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          {OVERLAY_OPTIONS.map((o) => {
+            const id = `overlay-${o.type}-${o.n}`
+            const checked = config.overlays.some((x) => x.type === o.type && x.n === o.n)
+            return (
+              <div key={id} className="flex items-center gap-2">
+                <Checkbox
+                  id={id}
+                  checked={checked}
+                  onCheckedChange={() => toggleOverlay(o.type, o.n)}
+                />
+                <Label htmlFor={id} className="text-sm font-normal">
+                  {o.label}
+                </Label>
+              </div>
+            )
+          })}
         </div>
       </div>
 

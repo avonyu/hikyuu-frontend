@@ -14,6 +14,7 @@ import { EngineBadge } from '@/components/EngineBadge'
 import { ModeToggle } from '@/components/mode-toggle'
 import {
   fetchMeta,
+  fetchOverlays,
   fetchStrategies,
   fetchSymbols,
   pollJob,
@@ -58,6 +59,7 @@ export default function App() {
   const [strategies, setStrategies] = useState<StrategyInfo[]>([])
   const [meta, setMeta] = useState<Meta | null>(null)
   const [result, setResult] = useState<BacktestResult | null>(null)
+  const [overlays, setOverlays] = useState<Record<string, number[]>>({})
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -87,6 +89,23 @@ export default function App() {
       }
     })()
   }, [])
+
+  // 叠加线：勾选变化时按「当前图上的标的与区间」实时重算
+  useEffect(() => {
+    if (!result) return
+    // 合并连续勾选（如一口气勾三个），只发一次请求
+    const timer = setTimeout(() => {
+      void fetchOverlays({
+        symbol: result.symbol,
+        start: result.start,
+        end: result.end,
+        overlays: config.overlays,
+      })
+        .then(setOverlays)
+        .catch(() => undefined)
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [config.overlays, result])
 
   const run = useCallback(async () => {
     setRunning(true)
@@ -124,6 +143,8 @@ export default function App() {
         setError(job.error ?? '回测失败')
       } else if (job.result) {
         setResult(job.result)
+        // 回测自带一份叠加线，先用上，再由下面的实时请求接管
+        setOverlays(job.result.overlays)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '回测失败')
@@ -136,7 +157,13 @@ export default function App() {
 
   const costModels = useMemo(() => meta?.cost_models ?? { etf: 'ETF 费率' }, [meta])
 
-  const selectedSymbol = symbols.find((s) => s.symbol === config.symbol)
+  // 图表上正在展示的标的：优先用回测结果的标的，
+  // 这样顶栏/图表不会出现「标的已改、图还是上一只」的不一致
+  const chartSymbol = useMemo(() => {
+    const code = result?.symbol ?? config.symbol
+    const info = symbols.find((s) => s.symbol === code)
+    return info ? `${info.symbol} ${info.name}` : code
+  }, [result, config.symbol, symbols])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -146,14 +173,7 @@ export default function App() {
           <div className="bg-primary/10 text-primary flex size-8 items-center justify-center rounded-lg">
             <CandlestickChart className="size-4" />
           </div>
-          <div>
-            <h1 className="text-sm font-semibold">Hikyuu 回测</h1>
-            <p className="text-muted-foreground text-xs">
-              {selectedSymbol
-                ? `${selectedSymbol.symbol} ${selectedSymbol.name}`
-                : config.symbol}
-            </p>
-          </div>
+          <h1 className="text-sm font-semibold">Hikyuu 回测</h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -211,15 +231,18 @@ export default function App() {
 
               <Card className="gap-3 py-4">
                 <CardHeader className="px-4">
-                  <CardTitle className="flex items-center gap-2 text-sm">
+                  <CardTitle className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
                     <CandlestickChart className="text-muted-foreground size-4" />
                     K 线与指标
+                    <Badge variant="secondary" className="font-normal">
+                      {chartSymbol}
+                    </Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-3">
                   <KlineChart
                     candles={result.candles}
-                    overlays={result.overlays}
+                    overlays={overlays}
                     trades={result.trades}
                   />
                 </CardContent>
@@ -227,9 +250,12 @@ export default function App() {
 
               <Card className="gap-3 py-4">
                 <CardHeader className="px-4">
-                  <CardTitle className="flex items-center gap-2 text-sm">
+                  <CardTitle className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
                     <ChartLine className="text-muted-foreground size-4" />
                     资金曲线
+                    <Badge variant="secondary" className="font-normal">
+                      {chartSymbol}
+                    </Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-3">
