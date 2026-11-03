@@ -46,6 +46,7 @@ export default function KlineChart({
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
+  const overlaySeriesRef = useRef<ISeriesApi<'Line'>[]>([])
 
   // 图表只创建一次，数据变化时用 setData 更新
   useEffect(() => {
@@ -109,6 +110,7 @@ export default function KlineChart({
       candleSeriesRef.current = null
       volumeSeriesRef.current = null
       markersRef.current = null
+      overlaySeriesRef.current = []
     }
   }, [height])
 
@@ -139,10 +141,13 @@ export default function KlineChart({
     chart.timeScale().fitContent()
   }, [candles])
 
-  // 指标叠加线
+  // 指标叠加线：每次先移除上一次创建的 series，否则重复回测会不断叠加
   useEffect(() => {
     const chart = chartRef.current
     if (!chart) return
+
+    overlaySeriesRef.current.forEach((series) => chart.removeSeries(series))
+    overlaySeriesRef.current = []
 
     Object.entries(overlays).forEach(([, values], idx) => {
       const color = OVERLAY_COLORS[idx % OVERLAY_COLORS.length]
@@ -157,6 +162,7 @@ export default function KlineChart({
         .map((c, i) => ({ time: c.time as Time, value: values[i] }))
         .filter((p) => Number.isFinite(p.value))
       line.setData(points)
+      overlaySeriesRef.current.push(line)
     })
   }, [overlays, candles])
 

@@ -137,7 +137,12 @@ def kdata_last_date(symbol: str) -> str | None:
         if table.nrows == 0:
             return None
         stamp = int(table[-1]["datetime"])
-        return f"{stamp // 100000000:04d}-{stamp // 10000 % 100:02d}-{stamp // 100 % 100:02d}"
+        # 存的是 YYYYMMDD * 10000（即 YYYYMMDDHHMMSS），月和日别解错位
+        return (
+            f"{stamp // 10**8:04d}-"
+            f"{stamp // 10**6 % 100:02d}-"
+            f"{stamp // 10**4 % 100:02d}"
+        )
     except Exception:  # noqa: BLE001
         return None
     finally:
