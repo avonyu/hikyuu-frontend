@@ -118,6 +118,10 @@ Hikyuu 自带的行情通道（TDX / pytdx）目前已失效——实测 104 个
 # 导入 / 增量更新行情
 uv run python scripts/seed_data.py --symbols sh510300 --incremental
 
+# 个股、深市指数：类别按代码段自动识别（ETF / STOCK / INDEX）
+uv run python scripts/seed_data.py --symbols sh600519,sz000001
+uv run python scripts/seed_data.py --symbols sz399006 --kind INDEX
+
 # 前端生产构建
 cd frontend && bun run build
 

@@ -40,13 +40,15 @@ def _resolve_name(market: str, code: str, name: str, kind: str) -> str:
     """名称未知时从清单接口补齐。"""
     if name:
         return name
-    from app.data.sources import list_etf, list_index
+    from app.data.sources import list_etf, list_index, list_stock
 
     try:
         if kind == "INDEX":
             df = list_index()
         elif kind == "ETF":
             df = list_etf()
+        elif kind == "STOCK":
+            df = list_stock()
         else:
             return f"{market}{code}"
         hit = df[df["code"].astype(str).str.zfill(6) == code]
@@ -69,9 +71,9 @@ def seed_symbol(market: str, code: str, name: str, kind: str,
         name = _resolve_name(market, code, name, kind)
 
         if incremental and last_date:
-            df = fetch_incremental(code, kind, last_date, start, end)
+            df = fetch_incremental(market, code, kind, last_date, start, end)
         else:
-            df = fetch_any(code, kind, start, end)
+            df = fetch_any(market, code, kind, start, end)
 
         if df.empty:
             return SeedResult(symbol, name, 0, None, None, skipped=True)
@@ -85,6 +87,8 @@ def seed_symbol(market: str, code: str, name: str, kind: str,
         return SeedResult(symbol, name, rows, first, last)
     except DataSourceError as exc:
         return SeedResult(symbol, name, 0, None, None, error=str(exc))
+    except Exception as exc:  # noqa: BLE001 - 单个标的失败不应中断整批导入
+        return SeedResult(symbol, name, 0, None, None, error=f"{type(exc).__name__}: {exc}")
     finally:
         conn.close()
 

@@ -83,11 +83,15 @@ def fetch_stock(code: str, start: str = "20180101", end: str = "20241231") -> pd
     return _normalize(df)
 
 
-def fetch_index(code: str, start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
-    """指数日线。走腾讯源，比 akshare 原生指数接口快约 100 倍。"""
+def fetch_index(market: str, code: str, start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
+    """指数日线。走腾讯源，比 akshare 原生指数接口快约 100 倍。
+
+    腾讯接口要求 symbol 带市场前缀（sh000001 / sz399006），且一次返回
+    全历史，start/end 不生效。
+    """
     import akshare as ak
 
-    symbol = f"sh{code}"
+    symbol = f"{market.lower()}{code}"
     try:
         df = ak.stock_zh_index_daily_tx(symbol=symbol)
     except Exception as exc:  # noqa: BLE001
@@ -100,24 +104,25 @@ def fetch_index(code: str, start: str = "20180101", end: str = "20241231") -> pd
     return _normalize(df)
 
 
-def fetch_any(code: str, kind: str, start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
+def fetch_any(market: str, code: str, kind: str,
+              start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
     """按证券类型选择数据源。"""
     if kind == KIND_ETF:
         return fetch_etf(code, start, end)
     if kind == KIND_INDEX:
-        return fetch_index(code, start, end)
+        return fetch_index(market, code, start, end)
     if kind == KIND_STOCK:
         return fetch_stock(code, start, end)
     raise DataSourceError(f"未知证券类型: {kind}")
 
 
-def fetch_incremental(code: str, kind: str, last_date: str | None,
+def fetch_incremental(market: str, code: str, kind: str, last_date: str | None,
                       start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
     """增量拉取：已有数据的标的只取 last_date 之后的部分。"""
     if last_date:
         # 多取 10 天用于覆盖停牌与除权导致的缺口
         start = _shift_days(last_date, -10)
-    return fetch_any(code, kind, start, end)
+    return fetch_any(market, code, kind, start, end)
 
 
 def _shift_days(date_str: str, days: int) -> str:

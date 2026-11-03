@@ -23,6 +23,20 @@ uv sync
 uv run python scripts/seed_data.py --symbols sh510300,sh510500
 ```
 
+标的写成「市场前缀 + 6 位代码」。类别默认按代码段自动判定，也可用
+`--kind ETF|STOCK|INDEX` 覆盖：
+
+```bash
+# 个股（自动识别为 STOCK，沪/深/北均可）
+uv run python scripts/seed_data.py --symbols sh600519,sz000001
+
+# 深市指数（腾讯源，注意必须带 sz 前缀）
+uv run python scripts/seed_data.py --symbols sz399006
+```
+
+`000xxx` 段沪市是指数、深市是股票（`sh000001` 上证指数 vs `sz000001`
+平安银行），裸代码无法判定，必须写市场前缀。
+
 这会拉取行情写入 `data_root/data/*.h5`（Hikyuu HDF5 格式），
 并在 `data_root/cfg/stock.db` 注册证券元信息。
 

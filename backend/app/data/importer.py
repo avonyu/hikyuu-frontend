@@ -33,6 +33,7 @@ class H5Record(tb.IsDescription):
 # 与 Hikyuu StockTypeInfo 表的 type 字段对齐
 STKTYPE = {
     "A": 1,
+    "STOCK": 1,  # 本项目对 A 股的统一叫法，与 Hikyuu 的 A 股同一类型
     "INDEX": 2,
     "ETF": 5,
     "GEM": 8,
