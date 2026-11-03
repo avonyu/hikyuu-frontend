@@ -3,6 +3,7 @@ import type {
   Health,
   Job,
   Meta,
+  StrategyInfo,
   SymbolInfo,
 } from './types'
 
@@ -36,6 +37,10 @@ export function fetchMeta() {
 
 export function fetchSymbols() {
   return request<SymbolInfo[]>('/symbols')
+}
+
+export function fetchStrategies() {
+  return request<StrategyInfo[]>('/strategies')
 }
 
 export function refreshSymbols() {

@@ -1,4 +1,4 @@
-import type { SymbolInfo } from '../lib/types'
+import type { StrategyInfo, SymbolInfo } from '../lib/types'
 
 export interface StrategyConfig {
   symbol: string
@@ -6,6 +6,9 @@ export interface StrategyConfig {
   end: string
   init_cash: number
   cost_model: string
+  strategyMode: 'builtin' | 'custom'
+  strategyId: string
+  strategyParams: Record<string, number>
   signalType: 'cross' | 'single'
   fast: number
   slow: number
@@ -23,6 +26,7 @@ interface Props {
   config: StrategyConfig
   onChange: (config: StrategyConfig) => void
   symbols: SymbolInfo[]
+  strategies: StrategyInfo[]
   costModels: Record<string, string>
   onSubmit: () => void
   running: boolean
@@ -43,6 +47,7 @@ export default function StrategyForm({
   config,
   onChange,
   symbols,
+  strategies,
   costModels,
   onSubmit,
   running,
@@ -53,6 +58,36 @@ export default function StrategyForm({
   ) => onChange({ ...config, [key]: value })
 
   const tradable = symbols.filter((s) => s.kind !== 'INDEX')
+
+  // 自定义脚本：加载失败的也列出来，但只在选中时提示
+  const customStrategies = strategies.filter((s) => !s.error)
+  const selectedStrategy = strategies.find((s) => s.id === config.strategyId)
+  const failedStrategy =
+    selectedStrategy?.error ? selectedStrategy : strategies.find((s) => s.error)
+
+  const pickStrategy = (id: string) => {
+    const found = strategies.find((s) => s.id === id)
+    const params: Record<string, number> = {}
+    found?.params.forEach((p) => {
+      params[p.name] = Number(p.default)
+    })
+    onChange({
+      ...config,
+      strategyMode: 'custom',
+      strategyId: id,
+      strategyParams: params,
+    })
+  }
+
+  const openCustom = () => {
+    if (config.strategyId) {
+      set('strategyMode', 'custom')
+    } else if (customStrategies.length > 0) {
+      pickStrategy(customStrategies[0].id)
+    } else {
+      set('strategyMode', 'custom')
+    }
+  }
 
   const toggleOverlay = (type: string, n: number) => {
     const exists = config.overlays.some(
@@ -139,15 +174,17 @@ export default function StrategyForm({
         </div>
       </div>
 
-      {/* 信号 */}
+      {/* 策略来源 */}
       <div>
         <label className={labelCls}>信号策略</label>
         <div className="flex gap-1.5">
           <button
             type="button"
-            onClick={() => set('signalType', 'cross')}
+            onClick={() =>
+              onChange({ ...config, strategyMode: 'builtin', signalType: 'cross' })
+            }
             className={`flex-1 rounded px-2 py-1.5 text-xs ${
-              config.signalType === 'cross'
+              config.strategyMode === 'builtin' && config.signalType === 'cross'
                 ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
                 : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
             }`}
@@ -156,19 +193,85 @@ export default function StrategyForm({
           </button>
           <button
             type="button"
-            onClick={() => set('signalType', 'single')}
+            onClick={() =>
+              onChange({ ...config, strategyMode: 'builtin', signalType: 'single' })
+            }
             className={`flex-1 rounded px-2 py-1.5 text-xs ${
-              config.signalType === 'single'
+              config.strategyMode === 'builtin' && config.signalType === 'single'
                 ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
                 : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
             }`}
           >
             单均线
           </button>
+          <button
+            type="button"
+            onClick={openCustom}
+            className={`flex-1 rounded px-2 py-1.5 text-xs ${
+              config.strategyMode === 'custom'
+                ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
+                : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
+            }`}
+          >
+            自定义脚本
+          </button>
         </div>
       </div>
 
-      {config.signalType === 'cross' ? (
+      {config.strategyMode === 'custom' ? (
+        <div className="flex flex-col gap-2">
+          <div>
+            <label className={labelCls}>策略脚本</label>
+            <select
+              className={inputCls}
+              value={config.strategyId}
+              onChange={(e) => pickStrategy(e.target.value)}
+            >
+              {customStrategies.length === 0 && (
+                <option value="">backend/strategies 下没有可用脚本</option>
+              )}
+              {customStrategies.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+            {selectedStrategy?.description && (
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-fg-muted)]">
+                {selectedStrategy.description}
+              </p>
+            )}
+            {failedStrategy?.error && (
+              <p className="mt-1 text-[11px] text-[var(--color-up)]">
+                加载失败：{failedStrategy.error}
+              </p>
+            )}
+          </div>
+
+          {selectedStrategy && selectedStrategy.params.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {selectedStrategy.params.map((p) => (
+                <div key={p.name}>
+                  <label className={labelCls}>{p.label}</label>
+                  <input
+                    type="number"
+                    className={inputCls}
+                    value={config.strategyParams[p.name] ?? p.default}
+                    min={p.min ?? undefined}
+                    max={p.max ?? undefined}
+                    onChange={(e) =>
+                      set('strategyParams', {
+                        ...config.strategyParams,
+                        [p.name]: Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : config.signalType === 'cross' ? (
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className={labelCls}>快线周期</label>

@@ -22,6 +22,7 @@ from app.api.schemas import (
     MoneyRequest,
     OverlayRequest,
     SignalRequest,
+    StrategyRequest,
     SymbolInfo,
 )
 from app.config import HIKYUU_INI, write_hikyuu_ini
@@ -32,6 +33,7 @@ from app.core.engine import (
     MoneySpec,
     OverlaySpec,
     SignalSpec,
+    StrategySpec,
     load_hikyuu,
     run_backtest,
 )
@@ -124,6 +126,11 @@ def create_backtest(request: BacktestRequest) -> JobCreated:
             n=request.money.n,
             percent=request.money.percent,
         ),
+        strategy=(
+            StrategySpec(id=request.strategy.id, params=dict(request.strategy.params))
+            if request.strategy
+            else None
+        ),
         overlays=[
             OverlaySpec(type=o.type, n=o.n, key=o.key) for o in request.overlays
         ],
@@ -211,6 +218,19 @@ def health() -> HealthResponse:
         cost_models=COST_MODEL_LABELS,
         detail=None if ready else "引擎尚未加载，首次回测时会自动初始化",
     )
+
+
+@app.get("/api/strategies")
+def list_strategies() -> list[dict[str, Any]]:
+    """自定义策略脚本清单（backend/strategies/*.py）。
+
+    脚本导入失败时对应项带 error 字段，不影响其它策略。
+    """
+    from dataclasses import asdict
+
+    from app.core.strategy_loader import list_strategies as _list
+
+    return [asdict(s) for s in _list()]
 
 
 @app.get("/api/meta")

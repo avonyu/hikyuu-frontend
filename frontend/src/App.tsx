@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   fetchHealth,
   fetchMeta,
+  fetchStrategies,
   fetchSymbols,
   pollJob,
   submitBacktest,
 } from './lib/api'
-import type { BacktestResult, Health, Meta, SymbolInfo } from './lib/types'
+import type { BacktestResult, Health, Meta, StrategyInfo, SymbolInfo } from './lib/types'
 import EquityChart from './components/EquityChart'
 import KlineChart from './components/KlineChart'
 import MetricsPanel from './components/MetricsPanel'
@@ -19,6 +20,9 @@ const DEFAULT_CONFIG: StrategyConfig = {
   end: '2024-12-31',
   init_cash: 300000,
   cost_model: 'etf',
+  strategyMode: 'builtin',
+  strategyId: '',
+  strategyParams: {},
   signalType: 'cross',
   fast: 5,
   slow: 20,
@@ -38,6 +42,7 @@ const DEFAULT_CONFIG: StrategyConfig = {
 export default function App() {
   const [config, setConfig] = useState<StrategyConfig>(DEFAULT_CONFIG)
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
+  const [strategies, setStrategies] = useState<StrategyInfo[]>([])
   const [meta, setMeta] = useState<Meta | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
   const [result, setResult] = useState<BacktestResult | null>(null)
@@ -47,14 +52,16 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const [s, m, h] = await Promise.all([
+        const [s, m, h, st] = await Promise.all([
           fetchSymbols(),
           fetchMeta(),
           fetchHealth(),
+          fetchStrategies(),
         ])
         setSymbols(s)
         setMeta(m)
         setHealth(h)
+        setStrategies(st)
         if (s.length > 0) {
           const firstTradable = s.find((x) => x.kind !== 'INDEX')
           if (firstTradable) {
@@ -83,6 +90,10 @@ export default function App() {
           slow: config.slow,
           n: config.singleN,
         },
+        strategy:
+          config.strategyMode === 'custom' && config.strategyId
+            ? { id: config.strategyId, params: config.strategyParams }
+            : null,
         money: {
           type: config.moneyType,
           n: config.count,
@@ -115,9 +126,9 @@ export default function App() {
   const selectedSymbol = symbols.find((s) => s.symbol === config.symbol)
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* 顶栏 */}
-      <header className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3">
+      <header className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-5 py-3">
         <div>
           <h1 className="text-sm font-semibold">Hikyuu 回测</h1>
           <p className="mt-0.5 text-[11px] text-[var(--color-fg-muted)]">
@@ -144,9 +155,10 @@ export default function App() {
         </div>
       </header>
 
-      <main className="grid flex-1 grid-cols-1 gap-4 p-4 lg:grid-cols-[280px_1fr]">
+      {/* 桌面端：左右两栏各自滚动，左栏不随页面/右栏滚动；窄屏仍整页滚动 */}
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[280px_1fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
         {/* 左栏：参数 */}
-        <aside className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-4">
+        <aside className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-4 lg:min-h-0 lg:overflow-y-auto">
           <h2 className="mb-3 text-xs font-semibold text-[var(--color-fg-muted)]">
             回测设置
           </h2>
@@ -154,6 +166,7 @@ export default function App() {
             config={config}
             onChange={setConfig}
             symbols={symbols}
+            strategies={strategies}
             costModels={costModels}
             onSubmit={run}
             running={running}
@@ -161,7 +174,7 @@ export default function App() {
         </aside>
 
         {/* 右栏：结果 */}
-        <section className="flex flex-col gap-4">
+        <section className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto">
           {error && (
             <div className="rounded border border-[var(--color-up)] bg-[var(--color-up)]/10 px-3 py-2 text-xs text-[var(--color-up)]">
               {error}

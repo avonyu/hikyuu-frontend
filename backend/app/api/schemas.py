@@ -25,6 +25,13 @@ class OverlayRequest(BaseModel):
     key: str | None = None
 
 
+class StrategyRequest(BaseModel):
+    """自定义策略脚本（backend/strategies/<id>.py）。"""
+
+    id: str = Field(..., description="脚本文件名，不含 .py")
+    params: dict[str, float] = Field(default_factory=dict, description="脚本声明的参数")
+
+
 class BacktestRequest(BaseModel):
     symbol: str = Field("sh510300", description="标的代码，如 sh510300")
     start: str = Field("2023-01-01", description="开始日期 YYYY-MM-DD")
@@ -32,6 +39,9 @@ class BacktestRequest(BaseModel):
     init_cash: float = Field(300_000.0, gt=0, description="初始资金")
     cost_model: str = Field("etf", description="stock | stock_pre2015 | etf | zero")
     signal: SignalRequest = Field(default_factory=SignalRequest)
+    strategy: StrategyRequest | None = Field(
+        None, description="设置后忽略 signal，改用自定义脚本"
+    )
     money: MoneyRequest = Field(default_factory=MoneyRequest)
     overlays: list[OverlayRequest] = Field(default_factory=list)
     stoploss: float | None = Field(None, gt=0, description="止损百分比，如 0.1 表示 10%")

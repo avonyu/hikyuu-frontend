@@ -68,6 +68,14 @@ class SignalSpec:
 
 
 @dataclass
+class StrategySpec:
+    """自定义策略脚本（backend/strategies/<id>.py）。"""
+
+    id: str = ""
+    params: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass
 class MoneySpec:
     """资金管理配置。"""
 
@@ -95,6 +103,7 @@ class BacktestSpec:
     init_cash: float = 300_000.0
     cost_model: str = "etf"
     signal: SignalSpec = field(default_factory=SignalSpec)
+    strategy: StrategySpec | None = None    # 非空时优先于 signal
     money: MoneySpec = field(default_factory=MoneySpec)
     overlays: list[OverlaySpec] = field(default_factory=list)
     stoploss: float | None = None      # 止损百分比
@@ -223,9 +232,16 @@ def run_backtest(sm, spec: BacktestSpec) -> dict[str, Any]:
 
     tm = tmod.crtTM(init_cash=spec.init_cash, cost_func=cost_cls())
 
+    if spec.strategy is not None:
+        from app.core.strategy_loader import build_signal
+
+        signal = build_signal(spec.strategy.id, spec.strategy.params)
+    else:
+        signal = _build_signal(spec.signal)
+
     kwargs: dict[str, Any] = {
         "tm": tm,
-        "sg": _build_signal(spec.signal),
+        "sg": signal,
         "mm": _build_money(spec.money),
     }
     if spec.stoploss is not None:
