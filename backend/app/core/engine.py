@@ -29,8 +29,6 @@ from hikyuu.core import (
     MM_FixedPercent,
     PG_FixedPercent,
     Query,
-    SG_Cross,
-    SG_Single,
     SP_FixedPercent,
     ST_FixedPercent,
     SYS_Simple,
@@ -59,18 +57,8 @@ COST_MODEL_LABELS = {
 
 
 @dataclass
-class SignalSpec:
-    """信号发生器配置。"""
-
-    type: str = "cross"          # cross | single
-    fast: int = 5
-    slow: int = 20
-    n: int = 20                 # single 类型使用
-
-
-@dataclass
 class StrategySpec:
-    """自定义策略脚本（backend/strategies/<id>.py）。"""
+    """策略脚本（backend/strategies/<id>.py）。"""
 
     id: str = ""
     params: dict[str, float] = field(default_factory=dict)
@@ -103,8 +91,7 @@ class BacktestSpec:
     end: str = "2024-12-31"
     init_cash: float = 300_000.0
     cost_model: str = "etf"
-    signal: SignalSpec = field(default_factory=SignalSpec)
-    strategy: StrategySpec | None = None    # 非空时优先于 signal
+    strategy: StrategySpec = field(default_factory=StrategySpec)
     money: MoneySpec = field(default_factory=MoneySpec)
     overlays: list[OverlaySpec] = field(default_factory=list)
     stoploss: float | None = None      # 止损百分比
@@ -145,18 +132,6 @@ def build_query(start: str, end: str) -> Query:
     end_date = dt.date.fromisoformat(end) + dt.timedelta(days=1)
     e = Datetime(end_date.year, end_date.month, end_date.day)
     return Query(s, e)
-
-
-def _build_signal(spec: SignalSpec):
-    from hikyuu.indicator import CLOSE, EMA, MA
-
-    if spec.type == "cross":
-        fast = MA(CLOSE(), n=spec.fast)
-        slow = MA(CLOSE(), n=spec.slow)
-        return SG_Cross(fast, slow)
-    if spec.type == "single":
-        return SG_Single(MA(CLOSE(), n=spec.n))
-    raise EngineError(f"未知的信号类型: {spec.type}")
 
 
 def _build_money(spec: MoneySpec):
@@ -243,22 +218,31 @@ def run_backtest(sm, spec: BacktestSpec) -> dict[str, Any]:
 
     tm = tmod.crtTM(init_cash=spec.init_cash, cost_func=cost_cls())
 
-    if spec.strategy is not None:
-        from app.core.strategy_loader import build_signal
+    # 自定义策略脚本可以自带资金管理 / 目标价（见 strategies/README.md）
+    profit_goal = None
+    take_profit = None
+    from app.core.strategy_loader import build_parts
 
-        signal = build_signal(spec.strategy.id, spec.strategy.params)
-    else:
-        signal = _build_signal(spec.signal)
+    parts = build_parts(spec.strategy.id, spec.strategy.params)
+    money = parts.mm if parts.mm is not None else _build_money(spec.money)
+    profit_goal = parts.pg
+    take_profit = parts.tp
 
     kwargs: dict[str, Any] = {
         "tm": tm,
-        "sg": signal,
-        "mm": _build_money(spec.money),
+        "sg": parts.sg,
+        "mm": money,
     }
     if spec.stoploss is not None:
         kwargs["st"] = ST_FixedPercent(spec.stoploss)
-    if spec.takeprofit is not None:
-        kwargs["tp"] = PG_FixedPercent(spec.takeprofit)
+    # 止盈走「目标价」槽位（pg）：PG_FixedPercent 的目标价 = 持仓均价 × (1 + p)，
+    # 正是定投想要的「盈利到 X% 全部赎回」；tp 槽位是移动止盈，两者不能混用。
+    if profit_goal is not None:
+        kwargs["pg"] = profit_goal
+    elif spec.takeprofit is not None:
+        kwargs["pg"] = PG_FixedPercent(spec.takeprofit)
+    if take_profit is not None:
+        kwargs["tp"] = take_profit
     if spec.slippage is not None:
         kwargs["sp"] = SP_FixedPercent(spec.slippage)
 

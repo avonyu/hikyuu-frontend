@@ -11,6 +11,12 @@
     def build(params):             # params 已按声明做过类型转换与范围校验
         return SG_Cross(MA(CLOSE(), n=params["fast"]), ...)
 
+build() 可以只返回一个信号发生器（只用信号，资金管理与风控由表单控制），
+也可以返回字典，连同自己的资金管理 / 目标价一起交给引擎：
+
+    def build(params):
+        return {"sg": sg, "mm": mm}     # mm 可选，pg / tp 同理
+
 - 模块按文件 mtime 缓存，改脚本后下一次回测即生效，无需重启服务；
 - 脚本在服务进程内执行（等价于给本机开了一个代码执行入口），只放自己信任的代码；
 - 单个脚本导入失败不影响其它策略，错误会随 /api/strategies 一起返回。
@@ -43,6 +49,8 @@ class StrategyParam:
     default: float | int
     min: float | None = None
     max: float | None = None
+    # 由 default 的类型决定：default 写成 int 即整数参数，写成 float（如 2.0）即小数参数
+    integer: bool = False
 
 
 @dataclass
@@ -52,6 +60,18 @@ class StrategyInfo:
     description: str
     params: list[StrategyParam] = field(default_factory=list)
     error: str | None = None
+    # 脚本自带资金管理（表单里的「资金管理」设置对它不生效）
+    money_manager: bool = False
+
+
+@dataclass
+class StrategyParts:
+    """策略脚本产出的交易系统组件。"""
+
+    sg: Any                                  # 信号发生器，必需
+    mm: Any = None                           # 资金管理，可选
+    pg: Any = None                           # 目标价（止盈），可选
+    tp: Any = None                           # 移动止盈，可选
 
 
 _loaded: dict[str, tuple[float, Any]] = {}
@@ -104,9 +124,14 @@ def _param_defs(module) -> list[StrategyParam]:
                 default=item.get("default", 0),
                 min=item.get("min"),
                 max=item.get("max"),
+                integer=_is_int(item.get("default", 0)),
             )
         )
     return out
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def list_strategies() -> list[StrategyInfo]:
@@ -122,6 +147,7 @@ def list_strategies() -> list[StrategyInfo]:
                     name=str(getattr(module, "NAME", sid)),
                     description=str(getattr(module, "DESCRIPTION", "")),
                     params=_param_defs(module),
+                    money_manager=bool(getattr(module, "MONEY_MANAGER", False)),
                 )
             )
         except Exception as exc:  # noqa: BLE001
@@ -144,8 +170,15 @@ def _resolve_path(strategy_id: str) -> Path:
     return path
 
 
-def build_signal(strategy_id: str, params: dict[str, Any] | None = None):
-    """执行策略脚本的 build(params)，返回 hikyuu 的 SG 实例。"""
+def build_parts(strategy_id: str, params: dict[str, Any] | None = None) -> StrategyParts:
+    """执行策略脚本的 build(params)，返回交易系统组件。
+
+    build() 有两种返回形式：
+
+    - 一个信号发生器（SG_*）：只用信号，资金管理与风控仍由表单控制；
+    - 一个字典：``{"sg": ..., "mm": ..., "pg": ..., "tp": ...}``，
+      其中 mm / pg / tp 可选，用于「定期定投」这类需要自己控制下单金额的策略。
+    """
     path = _resolve_path(strategy_id)
     module = _module_for(path)
 
@@ -167,17 +200,33 @@ def build_signal(strategy_id: str, params: dict[str, Any] | None = None):
             raise StrategyError(f"参数 {definition.name} 不能小于 {definition.min}")
         if definition.max is not None and value > definition.max:
             raise StrategyError(f"参数 {definition.name} 不能大于 {definition.max}")
-        # 整数型参数（default 是 int）保留 int，避免 MA(n=5.0) 之类的问题
-        resolved[definition.name] = (
-            int(value) if isinstance(definition.default, int) and not isinstance(definition.default, bool) else value
-        )
+        # 整数型参数（default 是 int）转成 int，避免 MA(n=5.0) 之类的问题；小数参数原样保留
+        resolved[definition.name] = int(value) if definition.integer else value
 
     try:
-        signal = build(resolved)
+        result = build(resolved)
     except Exception as exc:  # noqa: BLE001 - 用户脚本
         raise StrategyError(
             f"策略 {strategy_id} 执行失败：{type(exc).__name__}: {exc}"
         ) from exc
-    if signal is None:
+
+    if result is None:
         raise StrategyError(f"策略 {strategy_id} 的 build() 返回了 None")
-    return signal
+
+    if isinstance(result, dict):
+        sg = result.get("sg")
+        if sg is None:
+            raise StrategyError(f"策略 {strategy_id} 返回的字典里缺少 sg")
+        return StrategyParts(
+            sg=sg,
+            mm=result.get("mm"),
+            pg=result.get("pg"),
+            tp=result.get("tp"),
+        )
+
+    return StrategyParts(sg=result)
+
+
+def build_signal(strategy_id: str, params: dict[str, Any] | None = None):
+    """执行策略脚本的 build(params)，只取信号发生器。"""
+    return build_parts(strategy_id, params).sg

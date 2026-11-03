@@ -22,7 +22,6 @@ from app.api.schemas import (
     MoneyRequest,
     OverlayQueryRequest,
     OverlayRequest,
-    SignalRequest,
     StrategyRequest,
     SymbolInfo,
 )
@@ -33,7 +32,6 @@ from app.core.engine import (
     EngineError,
     MoneySpec,
     OverlaySpec,
-    SignalSpec,
     StrategySpec,
     build_query,
     extract_overlays,
@@ -133,22 +131,12 @@ def create_backtest(request: BacktestRequest) -> JobCreated:
         end=request.end,
         init_cash=request.init_cash,
         cost_model=request.cost_model,
-        signal=SignalSpec(
-            type=request.signal.type,
-            fast=request.signal.fast,
-            slow=request.signal.slow,
-            n=request.signal.n,
-        ),
         money=MoneySpec(
             type=request.money.type,
             n=request.money.n,
             percent=request.money.percent,
         ),
-        strategy=(
-            StrategySpec(id=request.strategy.id, params=dict(request.strategy.params))
-            if request.strategy
-            else None
-        ),
+        strategy=StrategySpec(id=request.strategy.id, params=dict(request.strategy.params)),
         overlays=[
             OverlaySpec(type=o.type, n=o.n, key=o.key) for o in request.overlays
         ],
