@@ -6,6 +6,7 @@ import {
   type ISeriesApi,
   type Time,
 } from 'lightweight-charts'
+import { useChartTheme } from '@/lib/theme'
 
 interface Props {
   candles: { time: string }[]
@@ -14,17 +15,9 @@ interface Props {
   height?: number
 }
 
-const GRID = '#21262d'
-const TEXT = '#8b949e'
-const LINE = '#58a6ff'
-
-/** 资金曲线（权益曲线）。与 K 线共用时间轴。 */
-export default function EquityChart({
-  candles,
-  equity,
-  initCash,
-  height = 220,
-}: Props) {
+/** 资金曲线（权益曲线）。 */
+export default function EquityChart({ candles, equity, initCash, height = 220 }: Props) {
+  const palette = useChartTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null)
@@ -37,25 +30,28 @@ export default function EquityChart({
       height,
       layout: {
         background: { color: 'transparent' },
-        textColor: TEXT,
+        textColor: palette.text,
         fontSize: 11,
       },
-      grid: { vertLines: { color: GRID }, horzLines: { color: GRID } },
-      rightPriceScale: { borderColor: GRID },
-      timeScale: { borderColor: GRID, rightOffset: 4 },
+      grid: {
+        vertLines: { color: palette.grid },
+        horzLines: { color: palette.grid },
+      },
+      rightPriceScale: { borderColor: palette.grid },
+      timeScale: { borderColor: palette.grid, rightOffset: 4 },
       crosshair: {
         mode: 0,
-        vertLine: { color: '#484f58', width: 1, style: 3 },
-        horzLine: { color: '#484f58', width: 1, style: 3 },
+        vertLine: { color: palette.text, width: 1, style: 3 },
+        horzLine: { color: palette.text, width: 1, style: 3 },
       },
       localization: { locale: 'zh-CN' },
     })
 
     const areaSeries = chart.addSeries(AreaSeries, {
-      lineColor: LINE,
-      topColor: 'rgba(88,166,255,0.28)',
-      bottomColor: 'rgba(88,166,255,0.02)',
-      lineWidth: 1,
+      lineColor: palette.line,
+      topColor: `${palette.line}47`,
+      bottomColor: `${palette.line}05`,
+      lineWidth: 2,
       priceLineVisible: false,
     })
 
@@ -74,7 +70,7 @@ export default function EquityChart({
       chartRef.current = null
       seriesRef.current = null
     }
-  }, [height])
+  }, [height, palette])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -87,12 +83,11 @@ export default function EquityChart({
       .filter((p) => Number.isFinite(p.value))
     series.setData(points)
 
-    // 初始资金基准线：先清掉上一次创建的，否则每次回测都会叠加一条
-    // （按 priceLines() 清而不是存 ref，HMR / 图表重建后也不会漏）
+    // 初始资金基准线：先清掉上一次创建的，避免重复回测叠加
     series.priceLines().forEach((line) => series.removePriceLine(line))
     series.createPriceLine({
       price: initCash,
-      color: '#484f58',
+      color: palette.baseline,
       lineWidth: 1,
       lineStyle: 2,
       axisLabelVisible: true,
@@ -100,7 +95,7 @@ export default function EquityChart({
     })
 
     chart.timeScale().fitContent()
-  }, [candles, equity, initCash])
+  }, [candles, equity, initCash, palette])
 
   return <div ref={containerRef} style={{ width: '100%', height }} />
 }

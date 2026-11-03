@@ -1,3 +1,10 @@
+import { Activity, ShieldAlert, TrendingDown, TrendingUp, Wallet } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+
+import { Card, CardContent } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
+import { cn } from '@/lib/utils'
+
 interface Props {
   metrics: Record<string, number>
   initCash: number
@@ -23,69 +30,93 @@ function formatValue(value: number | undefined, format?: 'pct' | 'money') {
   return value.toFixed(4)
 }
 
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: LucideIcon
+  label: string
+  value: string
+  tone?: 'up' | 'down'
+}) {
+  return (
+    <Card className="gap-1 py-4">
+      <CardContent className="px-4">
+        <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Icon className="size-3.5" />
+          {label}
+        </div>
+        <div
+          className={cn(
+            'num mt-2 text-2xl font-semibold',
+            tone === 'up' && 'text-up',
+            tone === 'down' && 'text-down',
+          )}
+        >
+          {value}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** 绩效指标面板：顶部关键指标 + 可展开的完整指标表。 */
 export default function MetricsPanel({ metrics, initCash }: Props) {
   const finalEquity = metrics['Current Total Assets'] ?? initCash
   const totalReturn =
-    metrics['Account Total Return %'] ??
-    ((finalEquity - initCash) / initCash) * 100
+    metrics['Account Total Return %'] ?? ((finalEquity - initCash) / initCash) * 100
   const positive = totalReturn >= 0
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {/* 关键指标卡片 */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
-          <div className="text-[11px] text-[var(--color-fg-muted)]">期末权益</div>
-          <div className="num mt-1 text-lg font-semibold">
-            {finalEquity.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
-          </div>
-        </div>
-        <div className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
-          <div className="text-[11px] text-[var(--color-fg-muted)]">总收益率</div>
-          <div
-            className={`num mt-1 text-lg font-semibold ${
-              positive ? 'text-[var(--color-up)]' : 'text-[var(--color-down)]'
-            }`}
-          >
-            {totalReturn.toFixed(2)}%
-          </div>
-        </div>
-        <div className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
-          <div className="text-[11px] text-[var(--color-fg-muted)]">最大回撤</div>
-          <div className="num mt-1 text-lg font-semibold text-[var(--color-warn)]">
-            {formatValue(metrics['Max Drawdown %'], 'pct')}
-          </div>
-        </div>
-        <div className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
-          <div className="text-[11px] text-[var(--color-fg-muted)]">夏普比率</div>
-          <div className="num mt-1 text-lg font-semibold">
-            {formatValue(metrics['Sharpe Ratio'])}
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard
+          icon={Wallet}
+          label="期末权益"
+          value={finalEquity.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+        />
+        <StatCard
+          icon={positive ? TrendingUp : TrendingDown}
+          label="总收益率"
+          value={`${totalReturn.toFixed(2)}%`}
+          tone={positive ? 'up' : 'down'}
+        />
+        <StatCard
+          icon={ShieldAlert}
+          label="最大回撤"
+          value={formatValue(metrics['Max Drawdown %'], 'pct')}
+        />
+        <StatCard
+          icon={Activity}
+          label="夏普比率"
+          value={formatValue(metrics['Sharpe Ratio'])}
+        />
       </div>
 
       {/* 完整指标表 */}
-      <details className="rounded border border-[var(--color-border)] bg-[var(--color-panel)]">
-        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">
+      <details className="bg-card rounded-xl border">
+        <summary className="text-muted-foreground hover:text-foreground cursor-pointer px-4 py-3 text-sm font-medium">
           全部 {Object.keys(metrics).length} 项指标
         </summary>
-        <div className="max-h-80 overflow-auto border-t border-[var(--color-border)]">
-          <table className="w-full text-xs">
-            <tbody>
+        <div className="max-h-80 overflow-auto border-t">
+          <Table>
+            <TableBody>
               {Object.entries(metrics).map(([name, value]) => {
                 const known = KEY_METRICS.find((m) => m.key === name)
                 return (
-                  <tr key={name} className="border-b border-[var(--color-border)] last:border-0">
-                    <td className="px-3 py-1.5 text-[var(--color-fg-muted)]">
+                  <TableRow key={name}>
+                    <TableCell className="text-muted-foreground">
                       {known?.label ?? name}
-                    </td>
-                    <td className="num px-3 py-1.5 text-right">{formatValue(value)}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell className="num text-right">{formatValue(value)}</TableCell>
+                  </TableRow>
                 )
               })}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </details>
     </div>

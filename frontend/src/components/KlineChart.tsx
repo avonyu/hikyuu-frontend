@@ -11,6 +11,7 @@ import {
   type SeriesMarkerBar,
   type Time,
 } from 'lightweight-charts'
+import { useChartTheme } from '@/lib/theme'
 import type { Candle, Trade } from '../lib/types'
 
 interface Props {
@@ -20,12 +21,7 @@ interface Props {
   height?: number
 }
 
-const UP = '#f85149' // A 股：红涨
-const DOWN = '#3fb950' // 绿跌
-const GRID = '#21262d'
-const TEXT = '#8b949e'
-
-const OVERLAY_COLORS = ['#58a6ff', '#d29922', '#a371f7', '#39c5cf', '#f778ba']
+const OVERLAY_COLORS = ['#3b82f6', '#eab308', '#a855f7', '#06b6d4', '#ec4899']
 
 /**
  * K 线图，含成交量、指标叠加线与买卖点标记。
@@ -33,7 +29,7 @@ const OVERLAY_COLORS = ['#58a6ff', '#d29922', '#a371f7', '#39c5cf', '#f778ba']
  * lightweight-charts v5 的 API 与 v4 不同：
  * - 序列统一用 chart.addSeries(SeriesType, options) 创建
  * - 标记是 primitive，用 createSeriesMarkers(series, [...])
- * - 时间为 UTC 秒或 'YYYY-MM-DD' 字符串，不能混用
+ * - 时间是 'YYYY-MM-DD' 字符串
  */
 export default function KlineChart({
   candles,
@@ -41,6 +37,7 @@ export default function KlineChart({
   trades = [],
   height = 420,
 }: Props) {
+  const palette = useChartTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -48,7 +45,7 @@ export default function KlineChart({
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null)
   const overlaySeriesRef = useRef<ISeriesApi<'Line'>[]>([])
 
-  // 图表只创建一次，数据变化时用 setData 更新
+  // 主题或高度变化时重建图表；数据变化只 setData
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -57,19 +54,19 @@ export default function KlineChart({
       height,
       layout: {
         background: { color: 'transparent' },
-        textColor: TEXT,
+        textColor: palette.text,
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: GRID },
-        horzLines: { color: GRID },
+        vertLines: { color: palette.grid },
+        horzLines: { color: palette.grid },
       },
-      rightPriceScale: { borderColor: GRID },
-      timeScale: { borderColor: GRID, rightOffset: 4 },
+      rightPriceScale: { borderColor: palette.grid },
+      timeScale: { borderColor: palette.grid, rightOffset: 4 },
       crosshair: {
         mode: 0,
-        vertLine: { color: '#484f58', width: 1, style: 3 },
-        horzLine: { color: '#484f58', width: 1, style: 3 },
+        vertLine: { color: palette.text, width: 1, style: 3 },
+        horzLine: { color: palette.text, width: 1, style: 3 },
       },
       localization: {
         locale: 'zh-CN',
@@ -77,21 +74,19 @@ export default function KlineChart({
     })
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: UP,
-      downColor: DOWN,
-      borderUpColor: UP,
-      borderDownColor: DOWN,
-      wickUpColor: UP,
-      wickDownColor: DOWN,
+      upColor: palette.up,
+      downColor: palette.down,
+      borderUpColor: palette.up,
+      borderDownColor: palette.down,
+      wickUpColor: palette.up,
+      wickDownColor: palette.down,
     })
 
     const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
     })
-    chart
-      .priceScale('volume')
-      .applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
+    chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
 
     chartRef.current = chart
     candleSeriesRef.current = candleSeries
@@ -112,7 +107,7 @@ export default function KlineChart({
       markersRef.current = null
       overlaySeriesRef.current = []
     }
-  }, [height])
+  }, [height, palette])
 
   // K 线 + 成交量
   useEffect(() => {
@@ -135,11 +130,11 @@ export default function KlineChart({
       candles.map((c) => ({
         time: c.time as Time,
         value: c.volume,
-        color: c.close >= c.open ? `${UP}40` : `${DOWN}40`,
+        color: c.close >= c.open ? palette.volumeUp : palette.volumeDown,
       })),
     )
     chart.timeScale().fitContent()
-  }, [candles])
+  }, [candles, palette])
 
   // 指标叠加线：每次先移除上一次创建的 series，否则重复回测会不断叠加
   useEffect(() => {
@@ -176,7 +171,7 @@ export default function KlineChart({
       .map((t) => ({
         time: t.datetime.slice(0, 10) as Time,
         position: t.business === 'BUY' ? ('belowBar' as const) : ('aboveBar' as const),
-        color: t.business === 'BUY' ? UP : DOWN,
+        color: t.business === 'BUY' ? palette.up : palette.down,
         shape: t.business === 'BUY' ? ('arrowUp' as const) : ('arrowDown' as const),
       }))
       .sort((a, b) => String(a.time).localeCompare(String(b.time)))
@@ -186,7 +181,7 @@ export default function KlineChart({
     } else {
       markersRef.current = createSeriesMarkers(series, markers)
     }
-  }, [trades])
+  }, [trades, palette])
 
   return <div ref={containerRef} style={{ width: '100%', height }} />
 }

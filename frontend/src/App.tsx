@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  CandlestickChart,
+  ChartLine,
+  MousePointerClick,
+  SlidersHorizontal,
+  Table2,
+  TriangleAlert,
+} from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { ModeToggle } from '@/components/mode-toggle'
+import {
   fetchHealth,
   fetchMeta,
   fetchStrategies,
@@ -118,109 +130,131 @@ export default function App() {
     }
   }, [config])
 
-  const costModels = useMemo(
-    () => meta?.cost_models ?? { etf: 'ETF 费率' },
-    [meta],
-  )
+  const costModels = useMemo(() => meta?.cost_models ?? { etf: 'ETF 费率' }, [meta])
 
   const selectedSymbol = symbols.find((s) => s.symbol === config.symbol)
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* 顶栏 */}
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-5 py-3">
-        <div>
-          <h1 className="text-sm font-semibold">Hikyuu 回测</h1>
-          <p className="mt-0.5 text-[11px] text-[var(--color-fg-muted)]">
-            {selectedSymbol
-              ? `${selectedSymbol.symbol} ${selectedSymbol.name}`
-              : config.symbol}
-          </p>
+      <header className="bg-background flex shrink-0 items-center justify-between border-b px-6 py-3">
+        <div className="flex items-center gap-3">
+          <div className="bg-primary/10 text-primary flex size-8 items-center justify-center rounded-lg">
+            <CandlestickChart className="size-4" />
+          </div>
+          <div>
+            <h1 className="text-sm font-semibold">Hikyuu 回测</h1>
+            <p className="text-muted-foreground text-xs">
+              {selectedSymbol
+                ? `${selectedSymbol.symbol} ${selectedSymbol.name}`
+                : config.symbol}
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-3 text-[11px] text-[var(--color-fg-muted)]">
+
+        <div className="flex items-center gap-2">
           {health && (
-            <>
-              <span>
-                标的 <span className="num">{health.available_symbols}</span>
-              </span>
+            <Badge variant="outline" className="gap-1.5">
               <span
-                className={
-                  health.engine_ready ? 'text-[var(--color-down)]' : 'text-[var(--color-warn)]'
-                }
-              >
-                引擎 {health.engine_ready ? '就绪' : '待加载'}
-              </span>
-            </>
+                aria-hidden="true"
+                className={`size-1.5 shrink-0 rounded-full ${
+                  health.engine_ready ? 'bg-down' : 'bg-destructive'
+                }`}
+              />
+              引擎{health.engine_ready ? '就绪' : '待加载'}
+            </Badge>
           )}
+          <ModeToggle />
         </div>
       </header>
 
-      {/* 桌面端：左右两栏各自滚动，左栏不随页面/右栏滚动；窄屏仍整页滚动 */}
-      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[280px_1fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
+      {/* 桌面端：左右两栏各自滚动；窄屏整页滚动 */}
+      <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[340px_1fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
         {/* 左栏：参数 */}
-        <aside className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-4 lg:min-h-0 lg:overflow-y-auto">
-          <h2 className="mb-3 text-xs font-semibold text-[var(--color-fg-muted)]">
-            回测设置
-          </h2>
-          <StrategyForm
-            config={config}
-            onChange={setConfig}
-            symbols={symbols}
-            strategies={strategies}
-            costModels={costModels}
-            onSubmit={run}
-            running={running}
-          />
-        </aside>
+        <Card className="lg:min-h-0 lg:overflow-y-auto">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <SlidersHorizontal className="text-muted-foreground size-4" />
+              回测设置
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StrategyForm
+              config={config}
+              onChange={setConfig}
+              symbols={symbols}
+              strategies={strategies}
+              costModels={costModels}
+              onSubmit={run}
+              running={running}
+            />
+          </CardContent>
+        </Card>
 
         {/* 右栏：结果 */}
         <section className="flex min-h-0 flex-col gap-4 lg:overflow-y-auto">
           {error && (
-            <div className="rounded border border-[var(--color-up)] bg-[var(--color-up)]/10 px-3 py-2 text-xs text-[var(--color-up)]">
-              {error}
+            <div className="border-destructive/40 bg-destructive/10 text-destructive flex items-start gap-2 rounded-lg border px-4 py-3 text-sm">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
           {!result && !error && (
-            <div className="flex flex-1 items-center justify-center rounded border border-dashed border-[var(--color-border)] py-20 text-xs text-[var(--color-fg-muted)]">
+            <div className="border-border text-muted-foreground flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed py-20 text-sm">
+              <MousePointerClick className="size-5 opacity-60" />
               {running ? '回测运行中…' : '配置左侧参数后点击「运行回测」'}
             </div>
           )}
 
           {result && (
             <>
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-4">
-                <MetricsPanel metrics={result.metrics} initCash={result.init_cash} />
-              </div>
+              <MetricsPanel metrics={result.metrics} initCash={result.init_cash} />
 
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
-                <h3 className="mb-2 text-[11px] font-medium text-[var(--color-fg-muted)]">
-                  K 线与指标
-                </h3>
-                <KlineChart
-                  candles={result.candles}
-                  overlays={result.overlays}
-                  trades={result.trades}
-                />
-              </div>
+              <Card className="gap-3 py-4">
+                <CardHeader className="px-4">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <CandlestickChart className="text-muted-foreground size-4" />
+                    K 线与指标
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-3">
+                  <KlineChart
+                    candles={result.candles}
+                    overlays={result.overlays}
+                    trades={result.trades}
+                  />
+                </CardContent>
+              </Card>
 
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-panel)] p-3">
-                <h3 className="mb-2 text-[11px] font-medium text-[var(--color-fg-muted)]">
-                  资金曲线
-                </h3>
-                <EquityChart
-                  candles={result.candles}
-                  equity={result.equity}
-                  initCash={result.init_cash}
-                />
-              </div>
+              <Card className="gap-3 py-4">
+                <CardHeader className="px-4">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <ChartLine className="text-muted-foreground size-4" />
+                    资金曲线
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-3">
+                  <EquityChart
+                    candles={result.candles}
+                    equity={result.equity}
+                    initCash={result.init_cash}
+                  />
+                </CardContent>
+              </Card>
 
-              <div>
-                <h3 className="mb-2 text-[11px] font-medium text-[var(--color-fg-muted)]">
-                  成交明细（{result.trades.length} 笔）
-                </h3>
-                <TradeTable trades={result.trades} />
-              </div>
+              <Card className="gap-3 py-4">
+                <CardHeader className="px-4">
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Table2 className="text-muted-foreground size-4" />
+                    成交明细
+                    <Badge variant="secondary">{result.trades.length} 笔</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <TradeTable trades={result.trades} />
+                </CardContent>
+              </Card>
             </>
           )}
         </section>

@@ -1,3 +1,26 @@
+import type { ReactNode } from 'react'
+import {
+  Activity,
+  CandlestickChart,
+  Loader2,
+  Percent,
+  Play,
+  ShieldAlert,
+  Wallet,
+} from 'lucide-react'
+
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { DatePicker } from '@/components/ui/date-picker'
+import { Label } from '@/components/ui/label'
+import { NumberInput } from '@/components/ui/number-input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import type { StrategyInfo, SymbolInfo } from '../lib/types'
 
 export interface StrategyConfig {
@@ -39,9 +62,26 @@ const OVERLAY_TYPES = [
   { value: 'macd', label: 'MACD' },
 ]
 
-const inputCls =
-  'w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-xs text-[var(--color-fg)] outline-none focus:border-[var(--color-accent)]'
-const labelCls = 'mb-1 block text-[11px] text-[var(--color-fg-muted)]'
+/** 0.2 -> 20，顺手抹掉浮点噪声 */
+const toPercentValue = (ratio: number) => Number((ratio * 100).toFixed(2))
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>{label}</Label>
+      {children}
+    </div>
+  )
+}
+
+function SectionTitle({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <div className="text-muted-foreground flex items-center gap-2 text-xs font-medium">
+      {icon}
+      {children}
+    </div>
+  )
+}
 
 export default function StrategyForm({
   config,
@@ -52,18 +92,17 @@ export default function StrategyForm({
   onSubmit,
   running,
 }: Props) {
-  const set = <K extends keyof StrategyConfig>(
-    key: K,
-    value: StrategyConfig[K],
-  ) => onChange({ ...config, [key]: value })
+  const set = <K extends keyof StrategyConfig>(key: K, value: StrategyConfig[K]) =>
+    onChange({ ...config, [key]: value })
 
   const tradable = symbols.filter((s) => s.kind !== 'INDEX')
 
   // 自定义脚本：加载失败的也列出来，但只在选中时提示
   const customStrategies = strategies.filter((s) => !s.error)
   const selectedStrategy = strategies.find((s) => s.id === config.strategyId)
-  const failedStrategy =
-    selectedStrategy?.error ? selectedStrategy : strategies.find((s) => s.error)
+  const failedStrategy = selectedStrategy?.error
+    ? selectedStrategy
+    : strategies.find((s) => s.error)
 
   const pickStrategy = (id: string) => {
     const found = strategies.find((s) => s.id === id)
@@ -90,358 +129,312 @@ export default function StrategyForm({
   }
 
   const toggleOverlay = (type: string, n: number) => {
-    const exists = config.overlays.some(
-      (o) => o.type === type && o.n === n,
+    const exists = config.overlays.some((o) => o.type === type && o.n === n)
+    set(
+      'overlays',
+      exists
+        ? config.overlays.filter((o) => !(o.type === type && o.n === n))
+        : [...config.overlays, { type, n }],
     )
-    const overlays = exists
-      ? config.overlays.filter((o) => !(o.type === type && o.n === n))
-      : [...config.overlays, { type, n }]
-    set('overlays', overlays)
   }
+
+  const isCross = config.strategyMode === 'builtin' && config.signalType === 'cross'
+  const isSingle = config.strategyMode === 'builtin' && config.signalType === 'single'
+  const isCustom = config.strategyMode === 'custom'
 
   return (
     <form
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-4"
       onSubmit={(e) => {
         // 回测由按钮的 onClick 触发；这里只阻止回车键导致的原生提交
         e.preventDefault()
       }}
     >
-      {/* 标的 */}
-      <div>
-        <label className={labelCls}>标的</label>
-        <select
-          className={inputCls}
-          value={config.symbol}
-          onChange={(e) => set('symbol', e.target.value)}
-        >
-          {tradable.length === 0 && <option value={config.symbol}>{config.symbol}</option>}
-          {tradable.map((s) => (
-            <option key={s.symbol} value={s.symbol}>
-              {s.symbol} {s.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* 标的与区间 */}
+      <Field label="标的">
+        <Select value={config.symbol} onValueChange={(v) => set('symbol', v)}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="选择标的" />
+          </SelectTrigger>
+          <SelectContent>
+            {tradable.map((s) => (
+              <SelectItem key={s.symbol} value={s.symbol}>
+                {s.symbol} {s.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
 
-      {/* 区间与资金 */}
       <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className={labelCls}>开始日期</label>
-          <input
-            type="date"
-            className={inputCls}
-            value={config.start}
-            onChange={(e) => set('start', e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelCls}>结束日期</label>
-          <input
-            type="date"
-            className={inputCls}
-            value={config.end}
-            onChange={(e) => set('end', e.target.value)}
-          />
-        </div>
+        <Field label="开始日期">
+          <DatePicker value={config.start} onChange={(v) => set('start', v)} />
+        </Field>
+        <Field label="结束日期">
+          <DatePicker value={config.end} onChange={(v) => set('end', v)} />
+        </Field>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className={labelCls}>初始资金</label>
-          <input
-            type="number"
-            className={inputCls}
-            value={config.init_cash}
+        <Field label="初始资金">
+          <NumberInput
             min={1000}
             step={10000}
-            onChange={(e) => set('init_cash', Number(e.target.value))}
+            value={config.init_cash}
+            onChange={(v) => set('init_cash', v ?? 1000)}
           />
-        </div>
-        <div>
-          <label className={labelCls}>费率模型</label>
-          <select
-            className={inputCls}
-            value={config.cost_model}
-            onChange={(e) => set('cost_model', e.target.value)}
-          >
-            {Object.entries(costModels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
+        </Field>
+        <Field label="费率模型">
+          <Select value={config.cost_model} onValueChange={(v) => set('cost_model', v)}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(costModels).map(([key, label]) => (
+                <SelectItem key={key} value={key}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
       </div>
 
-      {/* 策略来源 */}
-      <div>
-        <label className={labelCls}>信号策略</label>
+      {/* 策略 */}
+      <div className="flex flex-col gap-2">
+        <SectionTitle icon={<CandlestickChart className="size-3.5" />}>信号策略</SectionTitle>
         <div className="flex gap-1.5">
-          <button
+          <Button
             type="button"
+            size="sm"
+            variant={isCross ? 'default' : 'secondary'}
+            className="flex-1"
             onClick={() =>
               onChange({ ...config, strategyMode: 'builtin', signalType: 'cross' })
             }
-            className={`flex-1 rounded px-2 py-1.5 text-xs ${
-              config.strategyMode === 'builtin' && config.signalType === 'cross'
-                ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
-                : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
-            }`}
           >
             双均线交叉
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
+            variant={isSingle ? 'default' : 'secondary'}
+            className="flex-1"
             onClick={() =>
               onChange({ ...config, strategyMode: 'builtin', signalType: 'single' })
             }
-            className={`flex-1 rounded px-2 py-1.5 text-xs ${
-              config.strategyMode === 'builtin' && config.signalType === 'single'
-                ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
-                : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
-            }`}
           >
             单均线
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="sm"
+            variant={isCustom ? 'default' : 'secondary'}
+            className="flex-1"
             onClick={openCustom}
-            className={`flex-1 rounded px-2 py-1.5 text-xs ${
-              config.strategyMode === 'custom'
-                ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
-                : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
-            }`}
           >
             自定义脚本
-          </button>
+          </Button>
         </div>
       </div>
 
-      {config.strategyMode === 'custom' ? (
+      {isCustom ? (
         <div className="flex flex-col gap-2">
-          <div>
-            <label className={labelCls}>策略脚本</label>
-            <select
-              className={inputCls}
-              value={config.strategyId}
-              onChange={(e) => pickStrategy(e.target.value)}
-            >
-              {customStrategies.length === 0 && (
-                <option value="">backend/strategies 下没有可用脚本</option>
-              )}
-              {customStrategies.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            {selectedStrategy?.description && (
-              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-fg-muted)]">
-                {selectedStrategy.description}
-              </p>
-            )}
-            {failedStrategy?.error && (
-              <p className="mt-1 text-[11px] text-[var(--color-up)]">
-                加载失败：{failedStrategy.error}
-              </p>
-            )}
-          </div>
+          <Field label="策略脚本">
+            <Select value={config.strategyId} onValueChange={pickStrategy}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="选择脚本" />
+              </SelectTrigger>
+              <SelectContent>
+                {customStrategies.length === 0 && (
+                  <SelectItem value="__none__" disabled>
+                    backend/strategies 下没有可用脚本
+                  </SelectItem>
+                )}
+                {customStrategies.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {selectedStrategy?.description && (
+            <p className="text-muted-foreground text-xs leading-relaxed">
+              {selectedStrategy.description}
+            </p>
+          )}
+          {failedStrategy?.error && (
+            <Badge variant="destructive" className="max-w-full truncate">
+              加载失败：{failedStrategy.error}
+            </Badge>
+          )}
 
           {selectedStrategy && selectedStrategy.params.length > 0 && (
             <div className="grid grid-cols-2 gap-2">
               {selectedStrategy.params.map((p) => (
-                <div key={p.name}>
-                  <label className={labelCls}>{p.label}</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={config.strategyParams[p.name] ?? p.default}
+                <Field key={p.name} label={p.label}>
+                  <NumberInput
                     min={p.min ?? undefined}
                     max={p.max ?? undefined}
-                    onChange={(e) =>
+                    value={config.strategyParams[p.name] ?? p.default}
+                    onChange={(v) =>
                       set('strategyParams', {
                         ...config.strategyParams,
-                        [p.name]: Number(e.target.value),
+                        [p.name]: v ?? Number(p.default),
                       })
                     }
                   />
-                </div>
+                </Field>
               ))}
             </div>
           )}
         </div>
-      ) : config.signalType === 'cross' ? (
+      ) : isCross ? (
         <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className={labelCls}>快线周期</label>
-            <input
-              type="number"
-              className={inputCls}
-              value={config.fast}
-              min={1}
-              onChange={(e) => set('fast', Number(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className={labelCls}>慢线周期</label>
-            <input
-              type="number"
-              className={inputCls}
-              value={config.slow}
-              min={1}
-              onChange={(e) => set('slow', Number(e.target.value))}
-            />
-          </div>
+          <Field label="快线周期">
+            <NumberInput min={1} value={config.fast} onChange={(v) => set('fast', v ?? 1)} />
+          </Field>
+          <Field label="慢线周期">
+            <NumberInput min={1} value={config.slow} onChange={(v) => set('slow', v ?? 1)} />
+          </Field>
         </div>
       ) : (
-        <div>
-          <label className={labelCls}>均线周期</label>
-          <input
-            type="number"
-            className={inputCls}
-            value={config.singleN}
-            min={1}
-            onChange={(e) => set('singleN', Number(e.target.value))}
-          />
-        </div>
+        <Field label="均线周期">
+          <NumberInput min={1} value={config.singleN} onChange={(v) => set('singleN', v ?? 1)} />
+        </Field>
       )}
 
       {/* 资金管理 */}
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <label className={labelCls}>资金管理</label>
-          <select
-            className={inputCls}
+      <div className="flex flex-col gap-2">
+        <SectionTitle icon={<Wallet className="size-3.5" />}>资金管理</SectionTitle>
+        <div className="grid grid-cols-2 gap-2">
+          <Select
             value={config.moneyType}
-            onChange={(e) =>
-              set('moneyType', e.target.value as StrategyConfig['moneyType'])
-            }
+            onValueChange={(v) => set('moneyType', v as StrategyConfig['moneyType'])}
           >
-            <option value="fixed_count">固定股数</option>
-            <option value="fixed_percent">固定比例</option>
-          </select>
-        </div>
-        {config.moneyType === 'fixed_count' ? (
-          <div>
-            <label className={labelCls}>每次股数</label>
-            <input
-              type="number"
-              className={inputCls}
-              value={config.count}
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fixed_count">固定股数</SelectItem>
+              <SelectItem value="fixed_percent">固定比例</SelectItem>
+            </SelectContent>
+          </Select>
+          {config.moneyType === 'fixed_count' ? (
+            <NumberInput
               min={1}
               step={100}
-              onChange={(e) => set('count', Number(e.target.value))}
+              value={config.count}
+              onChange={(v) => set('count', v ?? 1)}
             />
-          </div>
-        ) : (
-          <div>
-            <label className={labelCls}>每次比例 (%)</label>
-            <input
-              type="number"
-              className={inputCls}
-              value={config.percent * 100}
-              min={1}
-              max={100}
-              onChange={(e) => set('percent', Number(e.target.value) / 100)}
-            />
-          </div>
-        )}
+          ) : (
+            <div className="relative">
+              <NumberInput
+                min={1}
+                max={100}
+                step={1}
+                decimals={2}
+                className="pr-7"
+                value={toPercentValue(config.percent)}
+                onChange={(v) => set('percent', (v ?? 1) / 100)}
+              />
+              <Percent className="text-muted-foreground pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2" />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 指标叠加 */}
-      <div>
-        <label className={labelCls}>指标叠加</label>
+      <div className="flex flex-col gap-2">
+        <SectionTitle icon={<Activity className="size-3.5" />}>指标叠加</SectionTitle>
         <div className="flex flex-wrap gap-1.5">
           {OVERLAY_TYPES.flatMap((t) =>
             t.value === 'macd'
               ? [
-                  <button
+                  <Button
                     key="macd"
                     type="button"
+                    size="sm"
+                    variant={
+                      config.overlays.some((o) => o.type === 'macd') ? 'default' : 'secondary'
+                    }
                     onClick={() => toggleOverlay('macd', 12)}
-                    className={`rounded px-2 py-1 text-[11px] ${
-                      config.overlays.some((o) => o.type === 'macd')
-                        ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
-                        : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
-                    }`}
                   >
                     MACD
-                  </button>,
+                  </Button>,
                 ]
               : [5, 20, 60].map((n) => (
-                  <button
+                  <Button
                     key={`${t.value}${n}`}
                     type="button"
-                    onClick={() => toggleOverlay(t.value, n)}
-                    className={`rounded px-2 py-1 text-[11px] ${
+                    size="sm"
+                    variant={
                       config.overlays.some((o) => o.type === t.value && o.n === n)
-                        ? 'bg-[var(--color-accent)] text-[var(--color-bg)]'
-                        : 'bg-[var(--color-panel-2)] text-[var(--color-fg-muted)]'
-                    }`}
+                        ? 'default'
+                        : 'secondary'
+                    }
+                    onClick={() => toggleOverlay(t.value, n)}
                   >
                     {t.label}
                     {n}
-                  </button>
+                  </Button>
                 )),
           )}
         </div>
       </div>
 
       {/* 风控 */}
-      <div className="grid grid-cols-3 gap-2">
-        <div>
-          <label className={labelCls}>止损 %</label>
-          <input
-            type="number"
-            className={inputCls}
-            value={config.stoploss ?? ''}
-            min={0}
-            step={1}
-            placeholder="无"
-            onChange={(e) =>
-              set('stoploss', e.target.value ? Number(e.target.value) / 100 : null)
-            }
-          />
-        </div>
-        <div>
-          <label className={labelCls}>止盈 %</label>
-          <input
-            type="number"
-            className={inputCls}
-            value={config.takeprofit ?? ''}
-            min={0}
-            step={1}
-            placeholder="无"
-            onChange={(e) =>
-              set('takeprofit', e.target.value ? Number(e.target.value) / 100 : null)
-            }
-          />
-        </div>
-        <div>
-          <label className={labelCls}>滑点 %</label>
-          <input
-            type="number"
-            className={inputCls}
-            value={config.slippage ?? ''}
-            min={0}
-            step={0.1}
-            placeholder="无"
-            onChange={(e) =>
-              set('slippage', e.target.value ? Number(e.target.value) / 100 : null)
-            }
-          />
+      <div className="flex flex-col gap-2">
+        <SectionTitle icon={<ShieldAlert className="size-3.5" />}>风控</SectionTitle>
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="止损 %">
+            <NumberInput
+              min={0}
+              step={0.1}
+              decimals={2}
+              placeholder="无"
+              value={config.stoploss === null ? null : toPercentValue(config.stoploss)}
+              onChange={(v) => set('stoploss', v === null ? null : v / 100)}
+            />
+          </Field>
+          <Field label="止盈 %">
+            <NumberInput
+              min={0}
+              step={0.1}
+              decimals={2}
+              placeholder="无"
+              value={config.takeprofit === null ? null : toPercentValue(config.takeprofit)}
+              onChange={(v) => set('takeprofit', v === null ? null : v / 100)}
+            />
+          </Field>
+          <Field label="滑点 %">
+            <NumberInput
+              min={0}
+              step={0.1}
+              decimals={2}
+              placeholder="无"
+              value={config.slippage === null ? null : toPercentValue(config.slippage)}
+              onChange={(v) => set('slippage', v === null ? null : v / 100)}
+            />
+          </Field>
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={running}
-        className="rounded bg-[var(--color-accent)] px-3 py-2 text-xs font-medium text-[var(--color-bg)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {running ? '回测中…' : '运行回测'}
-      </button>
+      <Button type="button" size="lg" onClick={onSubmit} disabled={running} className="mt-1 w-full">
+        {running ? (
+          <>
+            <Loader2 className="size-4 animate-spin" />
+            回测中…
+          </>
+        ) : (
+          <>
+            <Play className="size-4" />
+            运行回测
+          </>
+        )}
+      </Button>
     </form>
   )
 }
