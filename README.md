@@ -113,6 +113,7 @@ Hikyuu 自带的行情通道（TDX / pytdx）目前已失效——实测 104 个
 | HDF5 写覆盖 | `open_file(path,"w")` 会清空同文件其它标的，须用 `"a"` |
 | 市场代码大小写 | 存储为 `SH510300`，查询用 `sh510300` |
 | 绩效缺项 | Performance 报表不含回撤与夏普，已在适配层补充计算 |
+| MACD 参数名 | 签名是 `MACD(data, n1, n2, n3)`，没有 `n`/`m1`/`m2`；三个结果集依次为 BAR(DIFF-DEA)、DIFF、DEA |
 
 ## 常用命令
 
