@@ -76,7 +76,7 @@ def main() -> int:
         help="强制证券类别 ETF/STOCK/INDEX；默认按代码段自动判定",
     )
     parser.add_argument("--start", default="20160101", help="起始日期 YYYYMMDD")
-    parser.add_argument("--end", default="20251231", help="结束日期 YYYYMMDD（增量更新到最新时传当天）")
+    parser.add_argument("--end", default=None, help="结束日期 YYYYMMDD，缺省为今天")
     parser.add_argument(
         "--incremental",
         action="store_true",

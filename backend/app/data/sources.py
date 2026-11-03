@@ -42,6 +42,7 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
 
     df["date"] = pd.to_datetime(df["date"])
     df = df.set_index("date").sort_index()
+    df = df[~df.index.duplicated(keep="last")]
 
     for col in COLUMNS:
         if col not in df.columns:
@@ -50,16 +51,25 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
     df = df[COLUMNS].astype(float)
     df["volume"] = df["volume"].fillna(0.0)
     df["amount"] = df["amount"].fillna(0.0)
+    # 价格缺失的行（停牌、数据源脏数据）无法入库，写 HDF5 时会直接报错，这里先丢掉
+    df = df.dropna(subset=["open", "high", "low", "close"])
+    if df.empty:
+        raise DataSourceError("数据源返回的行情全部缺少价格")
     return df
 
 
-def _slice(df: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
-    return df[(df.index >= pd.to_datetime(start)) & (df.index <= pd.to_datetime(end))]
+def today_str() -> str:
+    """今天，YYYYMMDD。结束日期默认取它，否则拉不到写死日期之后的新行情。"""
+    import datetime as dt
+
+    return dt.date.today().strftime("%Y%m%d")
 
 
-def fetch_etf(code: str, start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
+def fetch_etf(code: str, start: str = "20180101", end: str | None = None) -> pd.DataFrame:
     """场内 ETF 日线（前复权）。"""
     import akshare as ak
+
+    end = end or today_str()
 
     try:
         df = ak.fund_etf_hist_em(
@@ -70,9 +80,11 @@ def fetch_etf(code: str, start: str = "20180101", end: str = "20241231") -> pd.D
     return _normalize(df)
 
 
-def fetch_stock(code: str, start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
+def fetch_stock(code: str, start: str = "20180101", end: str | None = None) -> pd.DataFrame:
     """A 股日线（前复权）。"""
     import akshare as ak
+
+    end = end or today_str()
 
     try:
         df = ak.stock_zh_a_hist(
@@ -83,7 +95,7 @@ def fetch_stock(code: str, start: str = "20180101", end: str = "20241231") -> pd
     return _normalize(df)
 
 
-def fetch_index(market: str, code: str, start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
+def fetch_index(market: str, code: str, start: str = "20180101", end: str | None = None) -> pd.DataFrame:
     """指数日线。走腾讯源，比 akshare 原生指数接口快约 100 倍。
 
     腾讯接口要求 symbol 带市场前缀（sh000001 / sz399006），且一次返回
@@ -105,7 +117,7 @@ def fetch_index(market: str, code: str, start: str = "20180101", end: str = "202
 
 
 def fetch_any(market: str, code: str, kind: str,
-              start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
+              start: str = "20180101", end: str | None = None) -> pd.DataFrame:
     """按证券类型选择数据源。"""
     if kind == KIND_ETF:
         return fetch_etf(code, start, end)
@@ -117,7 +129,7 @@ def fetch_any(market: str, code: str, kind: str,
 
 
 def fetch_incremental(market: str, code: str, kind: str, last_date: str | None,
-                      start: str = "20180101", end: str = "20241231") -> pd.DataFrame:
+                      start: str = "20180101", end: str | None = None) -> pd.DataFrame:
     """增量拉取：已有数据的标的只取 last_date 之后的部分。"""
     if last_date:
         # 多取 10 天用于覆盖停牌与除权导致的缺口

@@ -221,11 +221,13 @@ export default function StrategyForm({
           <Field label="止损 %">
             <NumberInput
               min={0}
+              max={100}
               step={0.1}
               decimals={2}
               placeholder="无"
               value={config.stoploss === null ? null : toPercentValue(config.stoploss)}
-              onChange={(v) => set('stoploss', v === null ? null : v / 100)}
+              // 填 0 等同于不设止损：后端要求必须大于 0，传 0 会直接报错
+              onChange={(v) => set('stoploss', v === null || v <= 0 ? null : v / 100)}
             />
           </Field>
           <Field label="止盈 %">
@@ -235,17 +237,18 @@ export default function StrategyForm({
               decimals={2}
               placeholder="无"
               value={config.takeprofit === null ? null : toPercentValue(config.takeprofit)}
-              onChange={(v) => set('takeprofit', v === null ? null : v / 100)}
+              onChange={(v) => set('takeprofit', v === null || v <= 0 ? null : v / 100)}
             />
           </Field>
           <Field label="滑点 %">
             <NumberInput
               min={0}
+              max={100}
               step={0.1}
               decimals={2}
               placeholder="无"
               value={config.slippage === null ? null : toPercentValue(config.slippage)}
-              onChange={(v) => set('slippage', v === null ? null : v / 100)}
+              onChange={(v) => set('slippage', v === null || v <= 0 ? null : v / 100)}
             />
           </Field>
         </div>

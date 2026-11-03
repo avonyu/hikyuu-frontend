@@ -16,10 +16,12 @@ from app.data.importer import (
     create_stock_db,
     kdata_bounds,
     list_registered,
+    prices_diverged,
+    read_kdata,
     register_stock,
     write_kdata,
 )
-from app.data.sources import DataSourceError, fetch_any, fetch_incremental
+from app.data.sources import DataSourceError, fetch_any, fetch_incremental, today_str
 
 
 @dataclass
@@ -61,9 +63,13 @@ def _resolve_name(market: str, code: str, name: str, kind: str) -> str:
 
 
 def seed_symbol(market: str, code: str, name: str, kind: str,
-                start: str = "20180101", end: str = "20241231",
+                start: str = "20180101", end: str | None = None,
                 incremental: bool = False) -> SeedResult:
-    """导入单个标的。incremental=True 时只补拉缺口数据。"""
+    """导入单个标的。incremental=True 时只补拉缺口数据。
+
+    end 缺省取今天：写死某个过去日期会让「刷新行情」永远拉不到新数据。
+    """
+    end = end or today_str()
     symbol = f"{market.lower()}{code}"
     conn = create_stock_db(STOCK_DB)
     try:
@@ -71,15 +77,22 @@ def seed_symbol(market: str, code: str, name: str, kind: str,
         last_date = existing.get("last_date") if existing else None
         name = _resolve_name(market, code, name, kind)
 
+        merge = incremental
         if incremental and last_date:
             df = fetch_incremental(market, code, kind, last_date, start, end)
+            # 发生除权时数据源会整体重算历史（前复权），只合并尾部会在接缝处留下断层。
+            # 检测到价格对不上就整段重拉，用新数据整体替换。
+            old = read_kdata(_h5_path(market), market, code)
+            if old is not None and not old.empty and prices_diverged(old, df):
+                df = fetch_any(market, code, kind, start, end)
+                merge = False
         else:
             df = fetch_any(market, code, kind, start, end)
 
         if df.empty:
             return SeedResult(symbol, name, 0, None, None, skipped=True)
 
-        rows = write_kdata(_h5_path(market), market, code, df, merge=incremental)
+        rows = write_kdata(_h5_path(market), market, code, df, merge=merge)
         register_stock(conn, StockMeta(market, code, name, kind))
 
         # 增量是「合并」写入，df 只是新拉的那一段，首末日期要以落盘结果为准
@@ -95,7 +108,7 @@ def seed_symbol(market: str, code: str, name: str, kind: str,
         conn.close()
 
 
-def seed_calendar_indexes(start: str = "20180101", end: str = "20241231") -> list[SeedResult]:
+def seed_calendar_indexes(start: str = "20180101", end: str | None = None) -> list[SeedResult]:
     """导入市场主指数。
 
     Hikyuu 用市场主指数推导交易日历，缺少它会导致
@@ -108,7 +121,7 @@ def seed_calendar_indexes(start: str = "20180101", end: str = "20241231") -> lis
 
 
 def seed_all(symbols: list[tuple[str, str, str, str]],
-             start: str = "20180101", end: str = "20241231",
+             start: str = "20180101", end: str | None = None,
              incremental: bool = False) -> list[SeedResult]:
     """导入指数日历 + 指定标的。symbols 项为 (market, code, name, kind)。"""
     results = seed_calendar_indexes(start, end)

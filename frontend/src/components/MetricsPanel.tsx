@@ -68,10 +68,14 @@ function StatCard({
 export default function MetricsPanel({ metrics, initCash, finalEquity }: Props) {
   // 资金曲线末值 = 现金 + 持仓按末日收盘价盯市，与图表一致。
   // Hikyuu 的 Current Total Assets 在「末日仍有持仓」时会与它对不上，故优先用它。
+  // 资金曲线末值可能是 NaN（末尾几天取不到权益），此时退回 Hikyuu 的期末资产
   const equity =
-    finalEquity ?? metrics['Current Total Assets'] ?? initCash
-  const totalReturn =
+    (finalEquity !== undefined && Number.isFinite(finalEquity) ? finalEquity : undefined) ??
+    metrics['Current Total Assets'] ??
+    initCash
+  const rawReturn =
     metrics['Account Total Return %'] ?? ((equity - initCash) / initCash) * 100
+  const totalReturn = Number.isFinite(rawReturn) ? rawReturn : 0
   const positive = totalReturn >= 0
 
   return (

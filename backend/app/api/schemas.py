@@ -1,9 +1,38 @@
 """API 请求/响应模型。"""
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+# Hikyuu 的日期上下限；越界会在引擎里抛出晦涩的 IndexError
+MIN_DATE = dt.date(1990, 1, 1)
+MAX_DATE = dt.date(2099, 12, 31)
+
+
+class DateRange(BaseModel):
+    """带起止日期的请求基类：格式、范围与先后顺序在入口处校验，报错对用户可读。"""
+
+    start: str = Field("2023-01-01", description="开始日期 YYYY-MM-DD")
+    end: str = Field("2024-12-31", description="结束日期 YYYY-MM-DD")
+
+    @field_validator("start", "end")
+    @classmethod
+    def _valid_date(cls, value: str) -> str:
+        try:
+            parsed = dt.date.fromisoformat(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"日期格式应为 YYYY-MM-DD，收到 {value!r}") from exc
+        if not MIN_DATE <= parsed <= MAX_DATE:
+            raise ValueError(f"日期需在 {MIN_DATE} ~ {MAX_DATE} 之间，收到 {value}")
+        return parsed.isoformat()
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "DateRange":
+        if self.start > self.end:
+            raise ValueError(f"开始日期 {self.start} 不能晚于结束日期 {self.end}")
+        return self
 
 
 class MoneyRequest(BaseModel):
@@ -22,30 +51,28 @@ class StrategyRequest(BaseModel):
     """策略脚本（backend/strategies/<id>.py）。"""
 
     id: str = Field(..., description="脚本文件名，不含 .py")
-    params: dict[str, float] = Field(default_factory=dict, description="脚本声明的参数")
+    params: dict[str, float | str] = Field(
+        default_factory=dict, description="脚本声明的参数（枚举参数传字符串）"
+    )
 
 
-class OverlayQueryRequest(BaseModel):
+class OverlayQueryRequest(DateRange):
     """只算指标叠加线，不跑回测（前端实时叠加用）。"""
 
     symbol: str = Field(..., description="标的代码，如 sh510300")
-    start: str = Field("2023-01-01", description="开始日期 YYYY-MM-DD")
-    end: str = Field("2024-12-31", description="结束日期 YYYY-MM-DD")
     overlays: list[OverlayRequest] = Field(default_factory=list)
 
 
-class BacktestRequest(BaseModel):
+class BacktestRequest(DateRange):
     symbol: str = Field("sh510300", description="标的代码，如 sh510300")
-    start: str = Field("2023-01-01", description="开始日期 YYYY-MM-DD")
-    end: str = Field("2024-12-31", description="结束日期 YYYY-MM-DD")
     init_cash: float = Field(300_000.0, gt=0, description="初始资金")
     cost_model: str = Field("etf", description="stock | stock_pre2015 | etf | zero")
     strategy: StrategyRequest = Field(..., description="策略脚本（backend/strategies/<id>.py）")
     money: MoneyRequest = Field(default_factory=MoneyRequest)
     overlays: list[OverlayRequest] = Field(default_factory=list)
-    stoploss: float | None = Field(None, gt=0, description="止损百分比，如 0.1 表示 10%")
+    stoploss: float | None = Field(None, gt=0, le=1, description="止损百分比，如 0.1 表示 10%")
     takeprofit: float | None = Field(None, gt=0, description="止盈百分比")
-    slippage: float | None = Field(None, gt=0, description="滑点百分比")
+    slippage: float | None = Field(None, gt=0, le=1, description="滑点百分比")
 
 
 class JobCreated(BaseModel):

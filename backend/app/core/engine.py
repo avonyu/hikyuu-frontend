@@ -17,6 +17,7 @@
 """
 from __future__ import annotations
 
+import math
 import warnings
 from dataclasses import dataclass, field
 from typing import Any
@@ -61,7 +62,7 @@ class StrategySpec:
     """策略脚本（backend/strategies/<id>.py）。"""
 
     id: str = ""
-    params: dict[str, float] = field(default_factory=dict)
+    params: dict[str, float | str] = field(default_factory=dict)
 
 
 @dataclass
@@ -132,6 +133,38 @@ def build_query(start: str, end: str) -> Query:
     end_date = dt.date.fromisoformat(end) + dt.timedelta(days=1)
     e = Datetime(end_date.year, end_date.month, end_date.day)
     return Query(s, e)
+
+
+def get_stock(sm, symbol: str):
+    """按代码取标的。
+
+    Hikyuu 对未知代码不抛 KeyError，而是返回一个空 Stock（is_null() 为真），
+    直接拿去回测会得到晦涩的 HKU_CHECK 异常，所以这里统一检查。
+    """
+    stock = sm[symbol]
+    if stock.is_null():
+        raise EngineError(
+            f"引擎中没有标的 {symbol}：请先导入数据；"
+            "若刚导入或刷新过行情，需要重启后端服务才会加载"
+        )
+    return stock
+
+
+def require_kdata(stock, query: Query, symbol: str, start: str, end: str):
+    """取区间内的 K 线；区间内没有数据时报错，而不是返回一份空的「成功」结果。"""
+    kdata = stock.get_kdata(query)
+    if len(kdata) > 0:
+        return kdata
+
+    detail = ""
+    everything = stock.get_kdata(build_query("1990-01-01", "2099-12-31"))
+    if len(everything) > 0:
+        first, last = everything[0].datetime, everything[len(everything) - 1].datetime
+        detail = (
+            f"，本地数据范围 {first.year:04d}-{first.month:02d}-{first.day:02d} ~ "
+            f"{last.year:04d}-{last.month:02d}-{last.day:02d}"
+        )
+    raise EngineError(f"{symbol} 在 {start} ~ {end} 内没有行情数据{detail}")
 
 
 def _build_money(spec: MoneySpec):
@@ -205,12 +238,9 @@ def _funds_curve(tm, kdata) -> list[dict[str, Any]]:
 
 def run_backtest(sm, spec: BacktestSpec) -> dict[str, Any]:
     """执行一次回测，返回可直接 JSON 序列化的结果。"""
-    try:
-        stock = sm[spec.symbol]
-    except KeyError as exc:
-        raise EngineError(f"未找到标的 {spec.symbol}，请先导入数据") from exc
-
+    stock = get_stock(sm, spec.symbol)
     query = build_query(spec.start, spec.end)
+    require_kdata(stock, query, spec.symbol, spec.start, spec.end)
 
     cost_cls = COST_MODELS.get(spec.cost_model)
     if cost_cls is None:
@@ -223,7 +253,12 @@ def run_backtest(sm, spec: BacktestSpec) -> dict[str, Any]:
     take_profit = None
     from app.core.strategy_loader import build_parts
 
-    parts = build_parts(spec.strategy.id, spec.strategy.params)
+    # 上下文让脚本知道当前标的与区间（如定投要按标的取指数估值）
+    parts = build_parts(
+        spec.strategy.id,
+        spec.strategy.params,
+        {"symbol": spec.symbol, "start": spec.start, "end": spec.end},
+    )
     money = parts.mm if parts.mm is not None else _build_money(spec.money)
     profit_goal = parts.pg
     take_profit = parts.tp
@@ -259,9 +294,9 @@ def compute_derived_metrics(equity: list[float], init_cash: float) -> dict[str, 
     - 最大回撤：资金曲线相对历史最高点的最大跌幅
     - 夏普比率：日收益均值 / 标准差 × √252（无风险利率按 0）
     """
-    import math
-
     out: dict[str, float] = {}
+    # 曲线里偶有 NaN（取不到权益的日子），混进去会让回撤与夏普整体变成 NaN
+    equity = [v for v in equity if math.isfinite(v)]
     if not equity:
         return out
 

@@ -6,11 +6,17 @@ ETF 清单接口实测需 32s）。
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import os
+import threading
+import time
+import uuid
 
 from app.config import CFG_DIR
 
 CATALOG_FILE = CFG_DIR / "catalog.json"
+
+# 读-改-写必须串行：刷新接口在线程池里并发执行，不加锁会互相覆盖
+_lock = threading.RLock()
 
 # 常见宽基 ETF，作为首次使用的默认标的
 DEFAULT_ETFS = [
@@ -28,20 +34,32 @@ def _read() -> dict:
         return {}
     try:
         return json.loads(CATALOG_FILE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError:
+        # 文件损坏：先留一份备份再当空清单处理，否则下一次写入会把现场一并覆盖掉。
+        # 读文件本身失败（OSError，如被占用）则直接抛出，不能当成空清单去覆盖写。
+        backup = CATALOG_FILE.with_name(f"catalog.corrupt-{int(time.time())}.json")
+        try:
+            os.replace(CATALOG_FILE, backup)
+        except OSError:
+            pass
         return {}
 
 
 def _write(data: dict) -> None:
+    """原子写入：先写临时文件再替换，写到一半崩溃也不会留下半截 JSON。"""
     CFG_DIR.mkdir(parents=True, exist_ok=True)
-    CATALOG_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    tmp = CATALOG_FILE.with_name(f"{CATALOG_FILE.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, CATALOG_FILE)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def get_entries() -> dict[str, dict]:
     """symbol -> {market, code, name, kind, last_date}"""
-    return _read().get("symbols", {})
+    with _lock:
+        return _read().get("symbols", {})
 
 
 def get_symbol(symbol: str) -> dict | None:
@@ -50,31 +68,34 @@ def get_symbol(symbol: str) -> dict | None:
 
 def upsert(symbol: str, market: str, code: str, name: str, kind: str,
            last_date: str | None = None) -> None:
-    data = _read()
-    symbols = data.setdefault("symbols", {})
-    key = symbol.lower()
-    entry = symbols.get(key, {})
-    entry.update({"market": market, "code": code, "name": name, "kind": kind})
-    if last_date:
-        entry["last_date"] = last_date
-    symbols[key] = entry
-    _write(data)
-
-
-def set_last_date(symbol: str, last_date: str) -> None:
-    data = _read()
-    symbols = data.setdefault("symbols", {})
-    key = symbol.lower()
-    if key in symbols:
-        symbols[key]["last_date"] = last_date
+    with _lock:
+        data = _read()
+        symbols = data.setdefault("symbols", {})
+        key = symbol.lower()
+        entry = symbols.get(key, {})
+        entry.update({"market": market, "code": code, "name": name, "kind": kind})
+        if last_date:
+            entry["last_date"] = last_date
+        symbols[key] = entry
         _write(data)
 
 
+def set_last_date(symbol: str, last_date: str) -> None:
+    with _lock:
+        data = _read()
+        symbols = data.setdefault("symbols", {})
+        key = symbol.lower()
+        if key in symbols:
+            symbols[key]["last_date"] = last_date
+            _write(data)
+
+
 def remove(symbol: str) -> None:
-    data = _read()
-    symbols = data.setdefault("symbols", {})
-    symbols.pop(symbol.lower(), None)
-    _write(data)
+    with _lock:
+        data = _read()
+        symbols = data.setdefault("symbols", {})
+        symbols.pop(symbol.lower(), None)
+        _write(data)
 
 
 def list_all() -> list[dict]:

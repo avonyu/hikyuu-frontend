@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CandlestickChart,
   ChartLine,
@@ -40,6 +40,8 @@ export default function App() {
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [overlays, setOverlays] = useState<Record<string, number[]>>({})
   const [running, setRunning] = useState(false)
+  // 点击后立即置位，防止同一帧内的重复点击提交多次回测
+  const runningRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
 
   // 引擎状态单独轮询：它在首次回测时才懒加载，
@@ -80,6 +82,8 @@ export default function App() {
   // 叠加线：勾选变化时按「当前图上的标的与区间」实时重算
   useEffect(() => {
     if (!result) return
+    // 请求返回顺序不保证与发出顺序一致，切标的/区间时旧请求可能后到并覆盖新结果
+    let cancelled = false
     // 合并连续勾选（如一口气勾三个），只发一次请求
     const timer = setTimeout(() => {
       void fetchOverlays({
@@ -88,13 +92,25 @@ export default function App() {
         end: result.end,
         overlays: config.overlays,
       })
-        .then(setOverlays)
+        .then((next) => {
+          if (!cancelled) setOverlays(next)
+        })
         .catch(() => undefined)
     }, 150)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [config.overlays, result])
 
   const run = useCallback(async () => {
+    // 连点「运行回测」时忽略后续点击：running 的状态更新要等下一次渲染才生效
+    if (runningRef.current) return
+    if (config.start > config.end) {
+      setError(`开始日期 ${config.start} 不能晚于结束日期 ${config.end}`)
+      return
+    }
+    runningRef.current = true
     setRunning(true)
     setError(null)
     // 脚本可能刚被修改：回测前刷新脚本列表，名称、说明与参数声明随之更新
@@ -129,6 +145,7 @@ export default function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : '回测失败')
     } finally {
+      runningRef.current = false
       setRunning(false)
       // 回测会触发引擎加载/复用，立即同步一次引擎状态
       void refreshHealth()

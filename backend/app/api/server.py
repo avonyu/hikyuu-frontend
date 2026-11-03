@@ -5,14 +5,18 @@
 """
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import threading
 import time
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.schemas import (
@@ -35,7 +39,9 @@ from app.core.engine import (
     StrategySpec,
     build_query,
     extract_overlays,
+    get_stock,
     load_hikyuu,
+    require_kdata,
     run_backtest,
 )
 from app.data import catalog
@@ -52,6 +58,8 @@ app.add_middleware(
 )
 
 # --- 作业管理 ---
+# 只保留最近若干条：每个结果都带着整段 K 线 / 资金曲线，长期运行不清理会一直涨内存
+MAX_JOBS = 50
 _jobs: dict[str, dict[str, Any]] = {}
 _jobs_lock = threading.Lock()
 _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="backtest")
@@ -152,6 +160,15 @@ def create_backtest(request: BacktestRequest) -> JobCreated:
             "created_at": time.time(),
             "request": request.model_dump(),
         }
+        while len(_jobs) > MAX_JOBS:
+            # dict 保持插入顺序，最早创建的先淘汰；正在跑的也不淘汰
+            oldest = next(
+                (k for k, v in _jobs.items() if v["status"] not in ("queued", "running")),
+                None,
+            )
+            if oldest is None:
+                break
+            _jobs.pop(oldest, None)
 
     _pool.submit(_run_job, job_id, spec)
     return JobCreated(id=job_id, status="queued")
@@ -185,11 +202,63 @@ def list_symbols() -> list[SymbolInfo]:
     return out
 
 
+# 看护脚本：等本进程退出后重新拉起 uvicorn。参数依次为端口、host、工作目录、等待秒数。
+_WATCHDOG = """
+import socket, subprocess, sys, time
+port, host, cwd, wait = sys.argv[1], sys.argv[2], sys.argv[3], float(sys.argv[4])
+time.sleep(wait)
+
+
+def port_free() -> bool:
+    with socket.socket() as sock:
+        sock.settimeout(1.0)
+        # connect_ex 返回 0 表示还有人监听，端口未释放
+        return sock.connect_ex((host, int(port))) != 0
+
+
+# 等到旧进程真正退出、端口释放后再启动；若被其它进程（如 --reload 的看护）
+# 抢先占用，则放弃本次启动，避免两个服务抢同一个端口
+for _ in range(50):
+    if port_free():
+        subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "app.api.server:app", "--host", host, "--port", port],
+            cwd=cwd,
+        )
+        break
+    time.sleep(0.2)
+"""
+
+
+def _schedule_restart(port: int, host: str, delay: float = 1.5) -> None:
+    """本次响应发出后重启服务，让 Hikyuu 重新读取行情。
+
+    Hikyuu 的 StockManager 一旦 load 就不会重新读盘（实测 reload() 无效），
+    只有进程重启才会加载刷新后的数据。这里拉起一个看护进程，
+    等本进程退出、端口释放后再启动新的 uvicorn。
+    """
+    if os.environ.get("HK_NO_AUTO_RESTART"):
+        return
+
+    backend_dir = Path(__file__).resolve().parents[2]
+
+    def _restart() -> None:
+        time.sleep(0.2)
+        subprocess.Popen(
+            [sys.executable, "-c", _WATCHDOG, str(port), host, str(backend_dir), str(delay)],
+            cwd=str(backend_dir),
+            close_fds=True,
+        )
+        os._exit(0)
+
+    threading.Thread(target=_restart, daemon=True).start()
+
+
 @app.post("/api/symbols/refresh")
-def refresh_symbols() -> dict[str, Any]:
-    """增量更新所有已导入标的的行情数据。"""
+def refresh_symbols(request: Request) -> dict[str, Any]:
+    """增量更新所有已导入标的的行情数据。完成后自动重启服务以加载新数据。"""
+    entries = catalog.list_all()
     results = []
-    for entry in catalog.list_all():
+    for entry in entries:
         result = seed_symbol(
             entry["market"],
             entry["code"],
@@ -205,7 +274,19 @@ def refresh_symbols() -> dict[str, Any]:
                 "error": result.error,
             }
         )
-    return {"refreshed": len(results), "results": results}
+
+    updated = sum(1 for r in results if r["status"] == "ok")
+    if updated and entries:
+        # 端口取自本次请求：服务可能不在默认的 8000 上
+        port = request.url.port or (443 if request.url.scheme == "https" else 80)
+        _schedule_restart(port, request.url.hostname or "127.0.0.1")
+
+    return {
+        "refreshed": len(results),
+        "updated": updated,
+        "restarting": bool(updated),
+        "results": results,
+    }
 
 
 @app.post("/api/overlays")
@@ -217,18 +298,16 @@ def compute_overlays(request: OverlayQueryRequest) -> dict[str, list[float]]:
     """
     sm = _get_stock_manager()
     symbol = request.symbol.lower()
-    try:
-        stock = sm[symbol]
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f"未找到标的 {symbol}") from exc
-
     query = build_query(request.start, request.end)
-    kdata = stock.get_kdata(query)
     specs = [OverlaySpec(type=o.type, n=o.n, key=o.key) for o in request.overlays]
     try:
+        stock = get_stock(sm, symbol)
+        kdata = require_kdata(stock, query, symbol, request.start, request.end)
         return extract_overlays(kdata, specs)
     except EngineError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - 其它引擎内部异常也返回可读信息
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
 @app.get("/api/health", response_model=HealthResponse)

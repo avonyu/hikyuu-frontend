@@ -241,7 +241,8 @@ export default function KlineChart({
       line.setData(points)
       overlaySeriesRef.current.push(line)
     })
-  }, [overlays, candles, totalHeight])
+    // palette 变化时图表会被重建，叠加线必须跟着重画，否则切换主题后线会消失
+  }, [overlays, candles, totalHeight, palette])
 
   // 买卖点标记
   useEffect(() => {

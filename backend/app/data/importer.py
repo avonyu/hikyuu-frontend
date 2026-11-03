@@ -10,6 +10,7 @@ HDF5 表结构必须与 hikyuu.data.common_h5.H5Record 保持一致：
 """
 from __future__ import annotations
 
+import math
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,6 +126,23 @@ def merge_kdata(existing: pd.DataFrame, fresh: pd.DataFrame) -> pd.DataFrame:
     return merged.sort_index()
 
 
+def prices_diverged(existing: pd.DataFrame, fresh: pd.DataFrame) -> bool:
+    """重叠日期上，新旧收盘价是否对不上。
+
+    数据源给的是前复权价：一旦发生除权，**所有历史价格**都会整体变化。
+    此时只把新拉的尾部合并进去，会在接缝处留下价格断层（回测里表现为假的暴涨暴跌）。
+    重叠日的收盘价对不上，就说明历史已被重新复权，需要整段重拉。
+
+    库里价格只存 3 位小数，容差要大于量化误差：绝对 0.002 + 相对 0.05%。
+    """
+    overlap = existing.index.intersection(fresh.index)
+    if len(overlap) == 0:
+        return False
+    old = existing.loc[overlap, "close"].astype(float)
+    new = fresh.loc[overlap, "close"].astype(float)
+    return bool(((old - new).abs() > 0.002 + 0.0005 * new.abs()).any())
+
+
 def kdata_bounds(path: Path, market: str, code: str) -> tuple[str, str] | None:
     """读取某标的的首末日期（YYYY-MM-DD），只碰两行，不解析整表。"""
     if not path.exists():
@@ -160,33 +178,69 @@ def write_kdata(path: Path, market: str, code: str, df: pd.DataFrame,
         if existing is not None and not existing.empty:
             df = merge_kdata(existing, df)
 
+    # 先把所有行转成整数记录：数据有问题（NaN、负价）在这里就抛出，
+    # 此时还没碰 HDF5 文件，已有数据不会受损。
+    records = _to_records(df)
+
     handle, group = _open_h5(path)
     table_name = market.upper() + code
+    tmp_name = f"_tmp_{table_name}"
     try:
-        handle.remove_node(group, table_name)
-    except Exception:  # noqa: BLE001 - 表不存在
-        pass
+        # 写到临时表，写完再原子替换：中途失败（磁盘满、进程被杀）旧表原样保留
+        if tmp_name in group:
+            handle.remove_node(group, tmp_name)
+        table = handle.create_table(group, tmp_name, H5Record)
+        row = table.row
+        for rec in records:
+            # datetime 用具名字段赋值：PyTables 会按字母序重排列，位置传 tuple 会错位
+            for field, value in rec.items():
+                row[field] = value
+            row.append()
+        table.flush()
+        count = table.nrows
+        handle.move_node(table, newparent=group, newname=table_name, overwrite=True)
+        handle.flush()
+        return count
+    except BaseException:
+        if tmp_name in group:
+            handle.remove_node(group, tmp_name)
+        raise
+    finally:
+        handle.close()
 
-    table = handle.create_table(group, table_name, H5Record)
-    row = table.row
+
+def _to_records(df: pd.DataFrame) -> list[dict[str, int]]:
+    """DataFrame -> H5Record 字段字典列表（价格 ×1000、成交额 ×0.001 的整数）。"""
+    if df.empty:
+        raise ValueError("没有可写入的行情数据")
+
+    records = []
     for date, record in df.iterrows():
-        # datetime 用具名字段赋值：PyTables 会按字母序重排列，位置传 tuple 会错位
-        row["datetime"] = int(
-            (date.year * 10000 + date.month * 100 + date.day) * 10000
+        prices = {k: float(record[k]) for k in ("open", "high", "low", "close")}
+        bad = [k for k, v in prices.items() if not math.isfinite(v) or v < 0]
+        if bad:
+            raise ValueError(f"{date:%Y-%m-%d} 的 {'/'.join(bad)} 无效：{prices}")
+        records.append(
+            {
+                "datetime": int((date.year * 10000 + date.month * 100 + date.day) * 10000),
+                "openPrice": int(round(prices["open"] * 1000)),
+                "highPrice": int(round(prices["high"] * 1000)),
+                "lowPrice": int(round(prices["low"] * 1000)),
+                "closePrice": int(round(prices["close"] * 1000)),
+                "transAmount": int(round(_finite(record.get("amount")) * 0.001)),
+                "transCount": int(_finite(record.get("volume"))),
+            }
         )
-        row["openPrice"] = int(round(float(record["open"]) * 1000))
-        row["highPrice"] = int(round(float(record["high"]) * 1000))
-        row["lowPrice"] = int(round(float(record["low"]) * 1000))
-        row["closePrice"] = int(round(float(record["close"]) * 1000))
-        row["transAmount"] = int(round(float(record.get("amount", 0.0) or 0.0) * 0.001))
-        row["transCount"] = int(float(record.get("volume", 0.0) or 0.0))
-        row.append()
+    return records
 
-    table.flush()
-    count = table.nrows
-    handle.flush()
-    handle.close()
-    return count
+
+def _finite(value) -> float:
+    """成交量 / 成交额缺失或 NaN 时按 0 处理。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) else 0.0
 
 
 def create_stock_db(db_path: Path) -> sqlite3.Connection:
@@ -194,11 +248,23 @@ def create_stock_db(db_path: Path) -> sqlite3.Connection:
     from hikyuu.data.common_sqlite3 import create_database
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    fresh = not db_path.exists()
     conn = sqlite3.connect(db_path)
-    if fresh:
+    # 文件存在不代表表已建好：上次建库中途失败会留下空库，
+    # 之后每条 SQL 都会报 "no such table"，这里统一补齐
+    has_stock = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='Stock'"
+    ).fetchone()
+    if not has_stock:
         create_database(conn)
         conn.commit()
+        # createdb.sql 只在「看起来是空库」时执行；半成品库补救不了，给出可操作的提示
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='Stock'"
+        ).fetchone():
+            conn.close()
+            raise RuntimeError(
+                f"证券库 {db_path} 结构不完整（缺少 Stock 表），请删除该文件后重新导入数据"
+            )
     return conn
 
 

@@ -24,6 +24,8 @@ build() 可以只返回一个信号发生器（只用信号，资金管理与风
 from __future__ import annotations
 
 import importlib.util
+import inspect
+import math
 import os
 import threading
 from dataclasses import dataclass, field
@@ -46,11 +48,14 @@ class StrategyError(RuntimeError):
 class StrategyParam:
     name: str
     label: str
-    default: float | int
+    default: float | int | str
     min: float | None = None
     max: float | None = None
     # 由 default 的类型决定：default 写成 int 即整数参数，写成 float（如 2.0）即小数参数
     integer: bool = False
+    # number：数值输入框（默认）；choice：从 choices 里选一项（如估值指标 pe/pb/roe）
+    type: str = "number"
+    choices: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -114,9 +119,36 @@ def _param_defs(module) -> list[StrategyParam]:
     raw = getattr(module, "PARAMS", []) or []
     out: list[StrategyParam] = []
     for item in raw:
+        if not isinstance(item, dict):
+            raise StrategyError(f"PARAMS 的每一项必须是字典，收到 {item!r}")
         name = str(item.get("name", "")).strip()
         if not name:
             raise StrategyError("PARAMS 里有一项缺少 name")
+
+        kind = str(item.get("type", "number")).lower()
+        if kind not in ("number", "choice"):
+            raise StrategyError(f"参数 {name} 的 type 只能是 number 或 choice")
+
+        if kind == "choice":
+            choices = [str(c) for c in (item.get("choices") or [])]
+            if not choices:
+                raise StrategyError(f"参数 {name} 是 choice，但没有声明 choices")
+            default = str(item.get("default", choices[0]))
+            if default not in choices:
+                raise StrategyError(
+                    f"参数 {name} 的默认值 {default!r} 不在 choices {choices} 里"
+                )
+            out.append(
+                StrategyParam(
+                    name=name,
+                    label=str(item.get("label", name)),
+                    default=default,
+                    type="choice",
+                    choices=choices,
+                )
+            )
+            continue
+
         out.append(
             StrategyParam(
                 name=name,
@@ -170,7 +202,25 @@ def _resolve_path(strategy_id: str) -> Path:
     return path
 
 
-def build_parts(strategy_id: str, params: dict[str, Any] | None = None) -> StrategyParts:
+def _accepts_context(build) -> bool:
+    """脚本的 build 是否接受第二个参数（回测上下文）。老脚本只写 build(params) 也能用。"""
+    try:
+        params = inspect.signature(build).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    positional = [
+        p for p in params
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+    ]
+    has_varargs = any(p.kind is p.VAR_POSITIONAL for p in params)
+    return has_varargs or len(positional) >= 2
+
+
+def build_parts(
+    strategy_id: str,
+    params: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
+) -> StrategyParts:
     """执行策略脚本的 build(params)，返回交易系统组件。
 
     build() 有两种返回形式：
@@ -178,6 +228,9 @@ def build_parts(strategy_id: str, params: dict[str, Any] | None = None) -> Strat
     - 一个信号发生器（SG_*）：只用信号，资金管理与风控仍由表单控制；
     - 一个字典：``{"sg": ..., "mm": ..., "pg": ..., "tp": ...}``，
       其中 mm / pg / tp 可选，用于「定期定投」这类需要自己控制下单金额的策略。
+
+    context 会作为 build 的第二个参数传给需要它的脚本（如按标的取估值数据）：
+    ``{"symbol": "sh510300", "start": "2023-01-01", "end": "2024-12-31"}``。
     """
     path = _resolve_path(strategy_id)
     module = _module_for(path)
@@ -190,12 +243,26 @@ def build_parts(strategy_id: str, params: dict[str, Any] | None = None) -> Strat
     resolved: dict[str, Any] = {}
     for definition in _param_defs(module):
         raw = provided.get(definition.name, definition.default)
+        if raw is None or raw == "":
+            raw = definition.default
+
+        if definition.type == "choice":
+            value = str(raw).strip()
+            if value not in definition.choices:
+                raise StrategyError(
+                    f"参数 {definition.name} 只能是 {definition.choices} 之一，收到 {raw!r}"
+                )
+            resolved[definition.name] = value
+            continue
+
         try:
             value = float(raw)
         except (TypeError, ValueError) as exc:
             raise StrategyError(
                 f"参数 {definition.name} 不是数字：{raw!r}"
             ) from exc
+        if not math.isfinite(value):
+            raise StrategyError(f"参数 {definition.name} 必须是有限数字：{raw!r}")
         if definition.min is not None and value < definition.min:
             raise StrategyError(f"参数 {definition.name} 不能小于 {definition.min}")
         if definition.max is not None and value > definition.max:
@@ -204,7 +271,13 @@ def build_parts(strategy_id: str, params: dict[str, Any] | None = None) -> Strat
         resolved[definition.name] = int(value) if definition.integer else value
 
     try:
-        result = build(resolved)
+        result = (
+            build(resolved, context or {})
+            if _accepts_context(build)
+            else build(resolved)
+        )
+    except StrategyError:
+        raise
     except Exception as exc:  # noqa: BLE001 - 用户脚本
         raise StrategyError(
             f"策略 {strategy_id} 执行失败：{type(exc).__name__}: {exc}"
