@@ -62,9 +62,14 @@ export interface SymbolInfo {
   last_date: string | null
 }
 
+/** 引擎状态机：idle（未加载）| loading（加载中）| ready（就绪）| error（加载失败） */
+export type EngineState = 'idle' | 'loading' | 'ready' | 'error'
+
 export interface Health {
   status: string
   engine_ready: boolean
+  /** 引擎状态机；旧版后端可能不返回，用 engine_ready 兜底 */
+  engine_state?: EngineState
   loaded_symbols: number
   available_symbols: number
   cost_models: Record<string, string>

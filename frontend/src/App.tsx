@@ -10,16 +10,17 @@ import {
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { EngineBadge } from '@/components/EngineBadge'
 import { ModeToggle } from '@/components/mode-toggle'
 import {
-  fetchHealth,
   fetchMeta,
   fetchStrategies,
   fetchSymbols,
   pollJob,
   submitBacktest,
 } from './lib/api'
-import type { BacktestResult, Health, Meta, StrategyInfo, SymbolInfo } from './lib/types'
+import { useHealth } from './lib/use-health'
+import type { BacktestResult, Meta, StrategyInfo, SymbolInfo } from './lib/types'
 import EquityChart from './components/EquityChart'
 import KlineChart from './components/KlineChart'
 import MetricsPanel from './components/MetricsPanel'
@@ -56,23 +57,24 @@ export default function App() {
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
   const [strategies, setStrategies] = useState<StrategyInfo[]>([])
   const [meta, setMeta] = useState<Meta | null>(null)
-  const [health, setHealth] = useState<Health | null>(null)
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // 引擎状态单独轮询：它在首次回测时才懒加载，
+  // 与其它初始化数据分开，失败时也不影响主流程
+  const { state: engineState, health, refresh: refreshHealth } = useHealth()
+
   useEffect(() => {
     void (async () => {
       try {
-        const [s, m, h, st] = await Promise.all([
+        const [s, m, st] = await Promise.all([
           fetchSymbols(),
           fetchMeta(),
-          fetchHealth(),
           fetchStrategies(),
         ])
         setSymbols(s)
         setMeta(m)
-        setHealth(h)
         setStrategies(st)
         if (s.length > 0) {
           const firstTradable = s.find((x) => x.kind !== 'INDEX')
@@ -127,8 +129,10 @@ export default function App() {
       setError(e instanceof Error ? e.message : '回测失败')
     } finally {
       setRunning(false)
+      // 回测会触发引擎加载/复用，立即同步一次引擎状态
+      void refreshHealth()
     }
-  }, [config])
+  }, [config, refreshHealth])
 
   const costModels = useMemo(() => meta?.cost_models ?? { etf: 'ETF 费率' }, [meta])
 
@@ -153,17 +157,11 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          {health && (
-            <Badge variant="outline" className="gap-1.5">
-              <span
-                aria-hidden="true"
-                className={`size-1.5 shrink-0 rounded-full ${
-                  health.engine_ready ? 'bg-down' : 'bg-destructive'
-                }`}
-              />
-              引擎{health.engine_ready ? '就绪' : '待加载'}
-            </Badge>
-          )}
+          <EngineBadge
+            state={engineState}
+            detail={health?.detail}
+            loadedSymbols={health?.loaded_symbols}
+          />
           <ModeToggle />
         </div>
       </header>
