@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react'
 import {
   Activity,
-  CandlestickChart,
   Loader2,
   Percent,
   Play,
@@ -9,7 +8,6 @@ import {
   Wallet,
 } from 'lucide-react'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DatePicker } from '@/components/ui/date-picker'
@@ -22,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { StrategyConfig, StrategyInfo, SymbolInfo } from '../lib/types'
+import type { StrategyConfig, SymbolInfo } from '../lib/types'
 
 export type { StrategyConfig }
 
@@ -31,7 +29,6 @@ interface Props {
   /** 传入要改的字段，内部与其它字段合并 */
   onChange: (patch: Partial<StrategyConfig>) => void
   symbols: SymbolInfo[]
-  strategies: StrategyInfo[]
   costModels: Record<string, string>
   onSubmit: () => void
   running: boolean
@@ -77,7 +74,6 @@ export default function StrategyForm({
   config,
   onChange,
   symbols,
-  strategies,
   costModels,
   onSubmit,
   running,
@@ -86,36 +82,6 @@ export default function StrategyForm({
     onChange({ [key]: value } as Partial<StrategyConfig>)
 
   const tradable = symbols.filter((s) => s.kind !== 'INDEX')
-
-  // 自定义脚本：加载失败的也列出来，但只在选中时提示
-  const customStrategies = strategies.filter((s) => !s.error)
-  const selectedStrategy = strategies.find((s) => s.id === config.strategyId)
-  const failedStrategy = selectedStrategy?.error
-    ? selectedStrategy
-    : strategies.find((s) => s.error)
-
-  const pickStrategy = (id: string) => {
-    const found = strategies.find((s) => s.id === id)
-    const params: Record<string, number> = {}
-    found?.params.forEach((p) => {
-      params[p.name] = Number(p.default)
-    })
-    onChange({
-      strategyMode: 'custom',
-      strategyId: id,
-      strategyParams: params,
-    })
-  }
-
-  const openCustom = () => {
-    if (config.strategyId) {
-      set('strategyMode', 'custom')
-    } else if (customStrategies.length > 0) {
-      pickStrategy(customStrategies[0].id)
-    } else {
-      set('strategyMode', 'custom')
-    }
-  }
 
   const toggleOverlay = (type: string, n: number) => {
     const exists = config.overlays.some((o) => o.type === type && o.n === n)
@@ -126,10 +92,6 @@ export default function StrategyForm({
         : [...config.overlays, { type, n }],
     )
   }
-
-  const isCross = config.strategyMode === 'builtin' && config.signalType === 'cross'
-  const isSingle = config.strategyMode === 'builtin' && config.signalType === 'single'
-  const isCustom = config.strategyMode === 'custom'
 
   return (
     <form
@@ -188,112 +150,6 @@ export default function StrategyForm({
           </Select>
         </Field>
       </div>
-
-      {/* 策略 */}
-      <div className="flex flex-col gap-2">
-        <SectionTitle icon={<CandlestickChart className="size-3.5" />}>信号策略</SectionTitle>
-        <div className="flex gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant={isCross ? 'default' : 'secondary'}
-            className="flex-1"
-            onClick={() =>
-              onChange({ strategyMode: 'builtin', signalType: 'cross' })
-            }
-          >
-            双均线交叉
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={isSingle ? 'default' : 'secondary'}
-            className="flex-1"
-            onClick={() =>
-              onChange({ strategyMode: 'builtin', signalType: 'single' })
-            }
-          >
-            单均线
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={isCustom ? 'default' : 'secondary'}
-            className="flex-1"
-            onClick={openCustom}
-          >
-            自定义脚本
-          </Button>
-        </div>
-      </div>
-
-      {isCustom ? (
-        <div className="flex flex-col gap-2">
-          <Field label="策略脚本">
-            <Select value={config.strategyId} onValueChange={pickStrategy}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="选择脚本" />
-              </SelectTrigger>
-              <SelectContent>
-                {customStrategies.length === 0 && (
-                  <SelectItem value="__none__" disabled>
-                    backend/strategies 下没有可用脚本
-                  </SelectItem>
-                )}
-                {customStrategies.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          {selectedStrategy?.description && (
-            <p className="text-muted-foreground text-xs leading-relaxed">
-              {selectedStrategy.description}
-            </p>
-          )}
-          {failedStrategy?.error && (
-            <Badge variant="destructive" className="max-w-full truncate">
-              加载失败：{failedStrategy.error}
-            </Badge>
-          )}
-
-          {selectedStrategy && selectedStrategy.params.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {selectedStrategy.params.map((p) => (
-                <Field key={p.name} label={p.label}>
-                  <NumberInput
-                    min={p.min ?? undefined}
-                    max={p.max ?? undefined}
-                    value={config.strategyParams[p.name] ?? p.default}
-                    onChange={(v) =>
-                      set('strategyParams', {
-                        ...config.strategyParams,
-                        [p.name]: v ?? Number(p.default),
-                      })
-                    }
-                  />
-                </Field>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : isCross ? (
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="快线周期">
-            <NumberInput min={1} value={config.fast} onChange={(v) => set('fast', v ?? 1)} />
-          </Field>
-          <Field label="慢线周期">
-            <NumberInput min={1} value={config.slow} onChange={(v) => set('slow', v ?? 1)} />
-          </Field>
-        </div>
-      ) : (
-        <Field label="均线周期">
-          <NumberInput min={1} value={config.singleN} onChange={(v) => set('singleN', v ?? 1)} />
-        </Field>
-      )}
 
       {/* 资金管理 */}
       <div className="flex flex-col gap-2">

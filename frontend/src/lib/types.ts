@@ -35,13 +35,8 @@ export interface StrategyConfig {
   end: string
   init_cash: number
   cost_model: string
-  strategyMode: 'builtin' | 'custom'
   strategyId: string
   strategyParams: Record<string, number>
-  signalType: 'cross' | 'single'
-  fast: number
-  slow: number
-  singleN: number
   moneyType: 'fixed_count' | 'fixed_percent'
   count: number
   percent: number
@@ -113,6 +108,8 @@ export interface StrategyParam {
   default: number
   min: number | null
   max: number | null
+  /** 整数参数（脚本里 default 写成 int）；否则为小数参数 */
+  integer: boolean
 }
 
 export interface StrategyInfo {
@@ -121,6 +118,8 @@ export interface StrategyInfo {
   description: string
   params: StrategyParam[]
   error?: string | null
+  /** 脚本自带资金管理：表单里的「资金管理」设置对它不生效 */
+  money_manager?: boolean
 }
 
 export interface BacktestPayload {
@@ -129,8 +128,7 @@ export interface BacktestPayload {
   end: string
   init_cash: number
   cost_model: string
-  signal: { type: string; fast: number; slow: number; n: number }
-  strategy?: { id: string; params: Record<string, number> } | null
+  strategy: { id: string; params: Record<string, number> }
   money: { type: string; n: number; percent: number }
   overlays: { type: string; n: number; key?: string | null }[]
   stoploss?: number | null

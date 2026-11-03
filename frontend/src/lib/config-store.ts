@@ -10,13 +10,8 @@ export const DEFAULT_CONFIG: StrategyConfig = {
   end: '2024-12-31',
   init_cash: 300000,
   cost_model: 'etf',
-  strategyMode: 'builtin',
-  strategyId: '',
+  strategyId: 'ma_cross',
   strategyParams: {},
-  signalType: 'cross',
-  fast: 5,
-  slow: 20,
-  singleN: 20,
   moneyType: 'fixed_count',
   count: 1000,
   percent: 0.2,
@@ -53,7 +48,12 @@ export const useConfigStore = create<ConfigStore>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
+      // v1 存过脚本参数的完整默认值，脚本改了 default 就会被旧值盖住，升级时清掉
+      migrate: (persisted) => {
+        const state = persisted as { config?: Partial<StrategyConfig> } | undefined
+        return { ...state, config: { ...state?.config, strategyParams: {} } }
+      },
       // 重新挂载时用默认值补齐缺失字段，避免旧版本存的数据缺键
       merge: (persisted, current) => ({
         ...current,

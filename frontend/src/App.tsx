@@ -27,6 +27,7 @@ import EquityChart from './components/EquityChart'
 import KlineChart from './components/KlineChart'
 import MetricsPanel from './components/MetricsPanel'
 import StrategyForm from './components/StrategyForm'
+import StrategyDrawer from './components/StrategyDrawer'
 import TradeTable from './components/TradeTable'
 
 export default function App() {
@@ -56,6 +57,13 @@ export default function App() {
         setSymbols(s)
         setMeta(m)
         setStrategies(st)
+        // 持久化的脚本已被改名或删除时，回退到第一个可用脚本
+        const usable = st.filter((x) => !x.error)
+        const picked = useConfigStore.getState().config.strategyId
+        if (usable.length > 0 && !usable.some((x) => x.id === picked)) {
+          const first = usable[0]
+          updateConfig({ strategyId: first.id, strategyParams: {} })
+        }
         // 持久化的标的可能已被删除，此时退回第一个可交易标的
         const tradable = s.filter((x) => x.kind !== 'INDEX')
         const current = useConfigStore.getState().config
@@ -89,6 +97,8 @@ export default function App() {
   const run = useCallback(async () => {
     setRunning(true)
     setError(null)
+    // 脚本可能刚被修改：回测前刷新脚本列表，名称、说明与参数声明随之更新
+    void fetchStrategies().then(setStrategies).catch(() => undefined)
     try {
       const { id } = await submitBacktest({
         symbol: config.symbol,
@@ -96,16 +106,7 @@ export default function App() {
         end: config.end,
         init_cash: config.init_cash,
         cost_model: config.cost_model,
-        signal: {
-          type: config.signalType,
-          fast: config.fast,
-          slow: config.slow,
-          n: config.singleN,
-        },
-        strategy:
-          config.strategyMode === 'custom' && config.strategyId
-            ? { id: config.strategyId, params: config.strategyParams }
-            : null,
+        strategy: { id: config.strategyId, params: config.strategyParams },
         money: {
           type: config.moneyType,
           n: config.count,
@@ -169,18 +170,18 @@ export default function App() {
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[340px_1fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
         {/* 左栏：参数 */}
         <Card className="lg:min-h-0 lg:overflow-y-auto">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-sm">
               <SlidersHorizontal className="text-muted-foreground size-4" />
               回测设置
             </CardTitle>
+            <StrategyDrawer config={config} onChange={updateConfig} strategies={strategies} />
           </CardHeader>
           <CardContent>
             <StrategyForm
               config={config}
               onChange={updateConfig}
               symbols={symbols}
-              strategies={strategies}
               costModels={costModels}
               onSubmit={run}
               running={running}
