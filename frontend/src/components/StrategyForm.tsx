@@ -22,33 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import type { StrategyInfo, SymbolInfo } from '../lib/types'
+import type { StrategyConfig, StrategyInfo, SymbolInfo } from '../lib/types'
 
-export interface StrategyConfig {
-  symbol: string
-  start: string
-  end: string
-  init_cash: number
-  cost_model: string
-  strategyMode: 'builtin' | 'custom'
-  strategyId: string
-  strategyParams: Record<string, number>
-  signalType: 'cross' | 'single'
-  fast: number
-  slow: number
-  singleN: number
-  moneyType: 'fixed_count' | 'fixed_percent'
-  count: number
-  percent: number
-  overlays: { type: string; n: number }[]
-  stoploss: number | null
-  takeprofit: number | null
-  slippage: number | null
-}
+export type { StrategyConfig }
 
 interface Props {
   config: StrategyConfig
-  onChange: (config: StrategyConfig) => void
+  /** 传入要改的字段，内部与其它字段合并 */
+  onChange: (patch: Partial<StrategyConfig>) => void
   symbols: SymbolInfo[]
   strategies: StrategyInfo[]
   costModels: Record<string, string>
@@ -102,7 +83,7 @@ export default function StrategyForm({
   running,
 }: Props) {
   const set = <K extends keyof StrategyConfig>(key: K, value: StrategyConfig[K]) =>
-    onChange({ ...config, [key]: value })
+    onChange({ [key]: value } as Partial<StrategyConfig>)
 
   const tradable = symbols.filter((s) => s.kind !== 'INDEX')
 
@@ -120,7 +101,6 @@ export default function StrategyForm({
       params[p.name] = Number(p.default)
     })
     onChange({
-      ...config,
       strategyMode: 'custom',
       strategyId: id,
       strategyParams: params,
@@ -219,7 +199,7 @@ export default function StrategyForm({
             variant={isCross ? 'default' : 'secondary'}
             className="flex-1"
             onClick={() =>
-              onChange({ ...config, strategyMode: 'builtin', signalType: 'cross' })
+              onChange({ strategyMode: 'builtin', signalType: 'cross' })
             }
           >
             双均线交叉
@@ -230,7 +210,7 @@ export default function StrategyForm({
             variant={isSingle ? 'default' : 'secondary'}
             className="flex-1"
             onClick={() =>
-              onChange({ ...config, strategyMode: 'builtin', signalType: 'single' })
+              onChange({ strategyMode: 'builtin', signalType: 'single' })
             }
           >
             单均线

@@ -20,41 +20,19 @@ import {
   pollJob,
   submitBacktest,
 } from './lib/api'
+import { useConfigStore } from './lib/config-store'
 import { useHealth } from './lib/use-health'
 import type { BacktestResult, Meta, StrategyInfo, SymbolInfo } from './lib/types'
 import EquityChart from './components/EquityChart'
 import KlineChart from './components/KlineChart'
 import MetricsPanel from './components/MetricsPanel'
-import StrategyForm, { type StrategyConfig } from './components/StrategyForm'
+import StrategyForm from './components/StrategyForm'
 import TradeTable from './components/TradeTable'
 
-const DEFAULT_CONFIG: StrategyConfig = {
-  symbol: 'sh510300',
-  start: '2023-01-01',
-  end: '2024-12-31',
-  init_cash: 300000,
-  cost_model: 'etf',
-  strategyMode: 'builtin',
-  strategyId: '',
-  strategyParams: {},
-  signalType: 'cross',
-  fast: 5,
-  slow: 20,
-  singleN: 20,
-  moneyType: 'fixed_count',
-  count: 1000,
-  percent: 0.2,
-  overlays: [
-    { type: 'ma', n: 5 },
-    { type: 'ma', n: 20 },
-  ],
-  stoploss: null,
-  takeprofit: null,
-  slippage: null,
-}
-
 export default function App() {
-  const [config, setConfig] = useState<StrategyConfig>(DEFAULT_CONFIG)
+  // 回测设置持久化到 localStorage，刷新页面后参数还在
+  const config = useConfigStore((s) => s.config)
+  const updateConfig = useConfigStore((s) => s.update)
   const [symbols, setSymbols] = useState<SymbolInfo[]>([])
   const [strategies, setStrategies] = useState<StrategyInfo[]>([])
   const [meta, setMeta] = useState<Meta | null>(null)
@@ -78,17 +56,18 @@ export default function App() {
         setSymbols(s)
         setMeta(m)
         setStrategies(st)
-        if (s.length > 0) {
-          const firstTradable = s.find((x) => x.kind !== 'INDEX')
-          if (firstTradable) {
-            setConfig((c) => ({ ...c, symbol: firstTradable.symbol }))
-          }
+        // 持久化的标的可能已被删除，此时退回第一个可交易标的
+        const tradable = s.filter((x) => x.kind !== 'INDEX')
+        const current = useConfigStore.getState().config
+        const kept = tradable.find((x) => x.symbol === current.symbol)
+        if (!kept && tradable.length > 0) {
+          updateConfig({ symbol: tradable[0].symbol })
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : '无法连接后端服务')
       }
     })()
-  }, [])
+  }, [updateConfig])
 
   // 叠加线：勾选变化时按「当前图上的标的与区间」实时重算
   useEffect(() => {
@@ -199,7 +178,7 @@ export default function App() {
           <CardContent>
             <StrategyForm
               config={config}
-              onChange={setConfig}
+              onChange={updateConfig}
               symbols={symbols}
               strategies={strategies}
               costModels={costModels}

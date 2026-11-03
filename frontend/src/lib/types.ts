@@ -28,6 +28,29 @@ export interface Trade {
   cost: TradeCost
 }
 
+/** 回测设置表单的完整配置（会被持久化到 localStorage）。 */
+export interface StrategyConfig {
+  symbol: string
+  start: string
+  end: string
+  init_cash: number
+  cost_model: string
+  strategyMode: 'builtin' | 'custom'
+  strategyId: string
+  strategyParams: Record<string, number>
+  signalType: 'cross' | 'single'
+  fast: number
+  slow: number
+  singleN: number
+  moneyType: 'fixed_count' | 'fixed_percent'
+  count: number
+  percent: number
+  overlays: { type: string; n: number }[]
+  stoploss: number | null
+  takeprofit: number | null
+  slippage: number | null
+}
+
 export interface BacktestResult {
   symbol: string
   start: string

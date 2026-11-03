@@ -30,6 +30,16 @@ bun run lint     # oxlint
 每 2 秒轮询 `/api/health`，状态分为：`idle` 待加载、`loading` 加载中、
 `ready` 就绪、`error` 加载失败；后端不可达时显示「服务未连接」。
 
+## 回测设置持久化
+
+表单配置由 zustand 的 `useConfigStore`（`src/lib/config-store.ts`）持有，
+经 `persist` 中间件写入 `localStorage` 的 `hikyuu-backtest-config`，
+刷新页面后参数还在。
+
+- 只持久化表单配置，回测结果不存，每次重新计算；
+- 重新挂载时用默认值补齐缺失字段，避免旧数据缺键；
+- 持久化的标的若已从行情库删除，会自动退回第一个可交易标的。
+
 ## 指标叠加
 
 勾选指标后**无需重跑回测**即可生效：前端调用 `POST /api/overlays`
