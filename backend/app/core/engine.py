@@ -35,6 +35,7 @@ from hikyuu.core import (
     ST_FixedPercent,
     SYS_Simple,
     Datetime,
+    DatetimeList,
 )
 import hikyuu.trade_manage as tmod
 
@@ -204,20 +205,27 @@ def extract_overlays(kdata, overlays: list[OverlaySpec]) -> dict[str, list[float
     return result
 
 
-def _calendar_for(sm, query: Query):
-    """取交易日历。
+def _funds_curve(tm, kdata) -> list[dict[str, Any]]:
+    """计算资金曲线（账户权益随时间的变化）。
 
-    Hikyuu 的日历来自市场主指数（沪深取 sh000300），拿不到日历时
-    get_funds_curve 会返回空数组。
+    Hikyuu 的 get_funds_curve 接受一组日期，返回这些日期上的账户权益。
+    这里必须用**标的自身的 K 线日期**，不能用市场日历：
+    市场日历覆盖整个区间（两年约 484 天），而新上市的标的可能只有
+    几十根 K 线（如 sh563360 只有 2024-10 之后的数据）。用市场日历会
+    得到一条长度与 K 线对不上、前段全是初始资金的曲线。
     """
-    codes = [s.market_code.lower() for s in sm]
-    for code in ("sh000300", "sh000001"):
-        if code in codes:
-            try:
-                return sm[code].get_trading_calendar(query)
-            except Exception:  # noqa: BLE001
-                continue
-    return None
+    if len(kdata) == 0:
+        return []
+
+    dates = DatetimeList([b.datetime for b in kdata])
+    values = tm.get_funds_curve(dates, Query.DAY)
+    return [
+        {
+            "time": f"{b.datetime.year:04d}-{b.datetime.month:02d}-{b.datetime.day:02d}",
+            "value": float(values[i]) if i < len(values) else float("nan"),
+        }
+        for i, b in enumerate(kdata)
+    ]
 
 
 def run_backtest(sm, spec: BacktestSpec) -> dict[str, Any]:
@@ -327,14 +335,11 @@ def _collect_results(sm, tm, stock, query: Query, spec: BacktestSpec) -> dict[st
         for b in kdata
     ]
 
-    # --- 资金曲线 ---
-    calendar = _calendar_for(sm, query)
-    equity: list[float] = []
-    if calendar is not None and len(calendar) > 0:
-        equity = [float(v) for v in tm.get_funds_curve(calendar, Query.DAY)]
+    # --- 资金曲线（与 K 线同一批日期，一一对应）---
+    equity = _funds_curve(tm, kdata)
 
     # Hikyuu 未提供回撤与夏普，这里补充
-    metrics.update(compute_derived_metrics(equity, spec.init_cash))
+    metrics.update(compute_derived_metrics([e["value"] for e in equity], spec.init_cash))
 
     # --- 成交记录 ---
     trades = []

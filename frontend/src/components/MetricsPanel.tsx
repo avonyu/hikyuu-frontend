@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils'
 interface Props {
   metrics: Record<string, number>
   initCash: number
+  /** 资金曲线末值；与图表一致，优先于 Hikyuu 的 Current Total Assets */
+  finalEquity?: number
 }
 
 /** 需要突出显示的关键指标（后端返回的是 Hikyuu 的英文指标名） */
@@ -63,10 +65,13 @@ function StatCard({
 }
 
 /** 绩效指标面板：顶部关键指标 + 可展开的完整指标表。 */
-export default function MetricsPanel({ metrics, initCash }: Props) {
-  const finalEquity = metrics['Current Total Assets'] ?? initCash
+export default function MetricsPanel({ metrics, initCash, finalEquity }: Props) {
+  // 资金曲线末值 = 现金 + 持仓按末日收盘价盯市，与图表一致。
+  // Hikyuu 的 Current Total Assets 在「末日仍有持仓」时会与它对不上，故优先用它。
+  const equity =
+    finalEquity ?? metrics['Current Total Assets'] ?? initCash
   const totalReturn =
-    metrics['Account Total Return %'] ?? ((finalEquity - initCash) / initCash) * 100
+    metrics['Account Total Return %'] ?? ((equity - initCash) / initCash) * 100
   const positive = totalReturn >= 0
 
   return (
@@ -76,7 +81,7 @@ export default function MetricsPanel({ metrics, initCash }: Props) {
         <StatCard
           icon={Wallet}
           label="期末权益"
-          value={finalEquity.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+          value={equity.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
         />
         <StatCard
           icon={positive ? TrendingUp : TrendingDown}

@@ -206,7 +206,11 @@ export default function App() {
 
           {result && (
             <>
-              <MetricsPanel metrics={result.metrics} initCash={result.init_cash} />
+              <MetricsPanel
+                metrics={result.metrics}
+                initCash={result.init_cash}
+                finalEquity={result.equity[result.equity.length - 1]?.value}
+              />
 
               <Card className="gap-3 py-4">
                 <CardHeader className="px-4">
@@ -239,7 +243,6 @@ export default function App() {
                 </CardHeader>
                 <CardContent className="px-3">
                   <EquityChart
-                    candles={result.candles}
                     equity={result.equity}
                     initCash={result.init_cash}
                   />

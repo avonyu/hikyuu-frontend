@@ -9,14 +9,14 @@ import {
 import { useChartTheme } from '@/lib/theme'
 
 interface Props {
-  candles: { time: string }[]
-  equity: number[]
+  /** 资金曲线，自带日期 */
+  equity: { time: string; value: number }[]
   initCash: number
   height?: number
 }
 
 /** 资金曲线（权益曲线）。 */
-export default function EquityChart({ candles, equity, initCash, height = 220 }: Props) {
+export default function EquityChart({ equity, initCash, height = 220 }: Props) {
   const palette = useChartTheme()
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -77,9 +77,9 @@ export default function EquityChart({ candles, equity, initCash, height = 220 }:
     const series = seriesRef.current
     if (!chart || !series) return
 
-    // 资金曲线与 K 线等长且等日期，按索引对齐
-    const points = candles
-      .map((c, i) => ({ time: c.time as Time, value: equity[i] }))
+    // 资金曲线自带日期，直接按自己的日期画，不依赖与 K 线的索引对齐
+    const points = equity
+      .map((p) => ({ time: p.time as Time, value: p.value }))
       .filter((p) => Number.isFinite(p.value))
     series.setData(points)
 
@@ -95,7 +95,7 @@ export default function EquityChart({ candles, equity, initCash, height = 220 }:
     })
 
     chart.timeScale().fitContent()
-  }, [candles, equity, initCash, palette])
+  }, [equity, initCash, palette])
 
   return <div ref={containerRef} style={{ width: '100%', height }} />
 }

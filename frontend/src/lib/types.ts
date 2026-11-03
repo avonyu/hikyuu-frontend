@@ -59,7 +59,8 @@ export interface BacktestResult {
   cost_model: string
   metrics: Record<string, number>
   candles: Candle[]
-  equity: number[]
+  /** 资金曲线：自带日期，与 candles 一一对应 */
+  equity: { time: string; value: number }[]
   trades: Trade[]
   overlays: Record<string, number[]>
 }
