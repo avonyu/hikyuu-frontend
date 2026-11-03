@@ -23,9 +23,9 @@ def build(params):
 | --- | --- | --- |
 | `NAME` | 否 | 界面显示名，缺省用文件名 |
 | `DESCRIPTION` | 否 | 说明文字 |
-| `PARAMS` | 否 | 参数声明，前端据此生成输入框 |
+| `PARAMS` | 否 | 参数声明，前端据此生成输入框 / 选择器 |
 | `MONEY_MANAGER` | 否 | 置 `True` 表示脚本自带资金管理（界面会提示表单的设置不生效） |
-| `build(params)` | **是** | 返回 Hikyuu 的信号发生器（`SG_*`）实例 |
+| `build(params[, context])` | **是** | 返回 Hikyuu 的信号发生器（`SG_*`）实例 |
 
 `params` 已经按 `PARAMS` 做过类型转换与范围校验：
 
@@ -33,6 +33,48 @@ def build(params):
 - `default` 是 `float`（写成 `2.0` 而不是 `2`）→ 这是小数参数，传 `float`，界面允许小数。
   **小数参数的默认值必须写成浮点数**：写成 `2` 会被当成整数参数，小数输入会被截断；
 - 超出 `min`/`max` 会直接报错，不会静默夹取。
+
+枚举参数用 `type: "choice"` 声明，界面会渲染成一组按钮：
+
+```python
+PARAMS = [
+    {"name": "valuation", "label": "估值指标",
+     "type": "choice", "choices": ["off", "pe", "pb", "roe"], "default": "off"},
+]
+```
+
+## 拿到当前标的与区间
+
+`build` 可以声明第二个参数，加载器会把回测上下文传进来；只写 `build(params)`
+的老脚本不受影响：
+
+```python
+def build(params, context):
+    symbol = context["symbol"]      # 如 sh510300
+    start, end = context["start"], context["end"]
+    ...
+```
+
+## 指数估值（PE / PB / ROE）
+
+ETF 本身没有 PE/PB/ROE，估值属于它跟踪的指数。`app.data.valuation` 提供
+按标的取「历史分位」的接口，数据来自乐咕乐股（月度，2005 年起）：
+
+```python
+from app.data.valuation import percentile_lookup
+
+# (年, 月) -> (估值, 分位 0~1)；没有数据时返回空字典
+table = percentile_lookup(context["symbol"], metric="pe", window_years=10, lag_months=1)
+```
+
+几点必须注意：
+
+- **月度**：估值每月才更新一次，只适合月度或更长的定投节奏，做不了日频择时；
+- **滞后**：数据月末才公布，默认滞后 1 个月再用；`lag_months=0` 会有未来函数；
+- **覆盖**：只有乐咕的 12 个指数（沪深300、上证50、中证500 等）有长历史；
+  科创50、创业板指等取不到，脚本应回退到别的逻辑；
+- **ROE** 由同一时点的 `PB ÷ PE` 推算（整体法、静态 PE），不是财报口径；
+- 首次使用会联网拉取并缓存到 `data_root/cfg/valuation/<指数>.csv`，之后离线可用。
 
 ## 自带资金管理
 
@@ -117,5 +159,5 @@ from hikyuu.trade_sys import (
 | `single_ma.py` | 单均线（收盘价上穿下穿均线） |
 | `boll_breakout.py` | 布林带突破 |
 | `rsi_reversal.py` | RSI 超买超卖 |
-| `dca.py` | 定期定投（可叠加智能定投与止盈） |
+| `dca.py` | 定期定投（估值分位：低估买入 / 正常持有 / 高估分批止盈；off=固定金额定投） |
 

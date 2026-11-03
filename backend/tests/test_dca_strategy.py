@@ -101,7 +101,17 @@ class LoaderTest(unittest.TestCase):
         self.assertIsNone(info.error)
         self.assertTrue(info.money_manager)
         names = {p.name for p in info.params}
-        self.assertEqual(names, {"period", "amount", "ma_n", "slope", "low_mult", "high_mult"})
+        self.assertEqual(
+            names,
+            {
+                "period", "amount", "valuation", "val_low_pct", "val_high_pct",
+                "val_window", "val_lag", "sell_amount", "low_mult",
+            },
+        )
+        # 估值指标是枚举参数，前端据此渲染选择器
+        valuation = next(p for p in info.params if p.name == "valuation")
+        self.assertEqual(valuation.type, "choice")
+        self.assertEqual(valuation.choices, ["off", "pe", "pb", "roe"])
 
     def test_build_parts_returns_signal_and_money_manager(self):
         """build() 返回字典时，加载器要能拆出信号与资金管理。"""
@@ -136,7 +146,7 @@ class BuySizeTest(unittest.TestCase):
     def _money_manager(self, **params):
         from hikyuu.core import crtTM
 
-        base = {"period": 10, "amount": 10000, "ma_n": 0}
+        base = {"period": 10, "amount": 10000, "valuation": "off"}
         base.update(params)
         parts = build_parts(STRATEGY_ID, base)
         parts.mm.tm = crtTM(init_cash=300000.0)

@@ -36,7 +36,7 @@ export interface StrategyConfig {
   init_cash: number
   cost_model: string
   strategyId: string
-  strategyParams: Record<string, number>
+  strategyParams: Record<string, number | string>
   moneyType: 'fixed_count' | 'fixed_percent'
   count: number
   percent: number
@@ -105,11 +105,14 @@ export interface Meta {
 export interface StrategyParam {
   name: string
   label: string
-  default: number
+  default: number | string
   min: number | null
   max: number | null
   /** 整数参数（脚本里 default 写成 int）；否则为小数参数 */
   integer: boolean
+  /** number：数值输入框；choice：从 choices 里选一项 */
+  type?: 'number' | 'choice'
+  choices?: string[]
 }
 
 export interface StrategyInfo {
@@ -128,7 +131,7 @@ export interface BacktestPayload {
   end: string
   init_cash: number
   cost_model: string
-  strategy: { id: string; params: Record<string, number> }
+  strategy: { id: string; params: Record<string, number | string> }
   money: { type: string; n: number; percent: number }
   overlays: { type: string; n: number; key?: string | null }[]
   stoploss?: number | null

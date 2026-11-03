@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { CandlestickChart } from 'lucide-react'
+import { CandlestickChart, Check, ChevronsUpDown } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/drawer'
 import { Label } from '@/components/ui/label'
 import { NumberInput } from '@/components/ui/number-input'
+import { cn } from '@/lib/utils'
 import type { StrategyConfig, StrategyInfo } from '../lib/types'
 
 interface Props {
@@ -35,6 +36,25 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 export default function StrategyDrawer({ config, onChange, strategies }: Props) {
   const [open, setOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
+
+  // 点击下拉区域之外或按 Esc 关闭；抽屉关闭时一并收起
+  useEffect(() => {
+    if (!pickerOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPickerOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [pickerOpen])
 
   // 加载失败的脚本不进入选项，只在选中时提示
   const usable = strategies.filter((s) => !s.error)
@@ -45,7 +65,15 @@ export default function StrategyDrawer({ config, onChange, strategies }: Props) 
   const pickStrategy = (id: string) => onChange({ strategyId: id, strategyParams: {} })
 
   return (
-    <Drawer direction="right" open={open} onOpenChange={setOpen}>
+    <Drawer
+      direction="right"
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        // 抽屉关闭时一并收起下拉，避免下次打开时列表还开着
+        if (!next) setPickerOpen(false)
+      }}
+    >
       <DrawerTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="max-w-full">
           <CandlestickChart className="size-4" />
@@ -60,19 +88,60 @@ export default function StrategyDrawer({ config, onChange, strategies }: Props) 
 
         <DrawerBody className="flex flex-col gap-4">
           <Field label="策略脚本">
-            {/* 原生下拉框：Radix Select 在抽屉里的选项点不中，原生 select 不受弹层影响 */}
-            <select
-              value={config.strategyId}
-              onChange={(e) => pickStrategy(e.target.value)}
-              className="border-input dark:bg-input/30 focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full cursor-pointer rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
-            >
-              {usable.length === 0 && <option value="">backend/strategies 下没有可用脚本</option>}
-              {usable.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            {/* 就地展开的下拉：触发器与列表用 shadcn Select 的样式。
+                不用 Portal —— Radix 弹层在 vaul 抽屉里会因焦点管理与
+                滑入动画（transform 干扰 Popper 测量）而错位或点不中 */}
+            <div className="relative" ref={pickerRef}>
+              <Button
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={pickerOpen}
+                aria-controls="strategy-options"
+                className="w-full justify-between font-normal"
+                onClick={() => setPickerOpen((v) => !v)}
+              >
+                <span className="truncate">{selected?.name ?? '选择脚本'}</span>
+                <ChevronsUpDown className="text-muted-foreground size-4 shrink-0" />
+              </Button>
+
+              {pickerOpen && (
+                <div
+                  id="strategy-options"
+                  role="listbox"
+                  aria-label="策略脚本"
+                  className="bg-popover text-popover-foreground animate-in fade-in-0 zoom-in-95 absolute top-full left-0 z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-md border p-1 shadow-md"
+                >
+                  {usable.length === 0 && (
+                    <p className="text-muted-foreground px-2 py-1.5 text-sm">
+                      backend/strategies 下没有可用脚本
+                    </p>
+                  )}
+                  {usable.map((s) => {
+                    const active = s.id === config.strategyId
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        role="option"
+                        aria-selected={active}
+                        onClick={() => {
+                          pickStrategy(s.id)
+                          setPickerOpen(false)
+                        }}
+                        className={cn(
+                          'hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none',
+                          active && 'bg-accent text-accent-foreground',
+                        )}
+                      >
+                        <span className="truncate">{s.name}</span>
+                        {active && <Check className="size-4 shrink-0" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </Field>
 
           {selected?.description && (
@@ -91,25 +160,47 @@ export default function StrategyDrawer({ config, onChange, strategies }: Props) 
 
           {selected && selected.params.length > 0 && (
             <div className="grid grid-cols-2 gap-3">
-              {selected.params.map((p) => (
-                <Field key={p.name} label={p.label}>
-                  <NumberInput
-                    min={p.min ?? undefined}
-                    max={p.max ?? undefined}
-                    decimals={p.integer ? 0 : 2}
-                    step={p.integer ? 1 : 0.1}
-                    value={config.strategyParams[p.name] ?? p.default}
-                    onChange={(v) =>
-                      onChange({
-                        strategyParams: {
-                          ...config.strategyParams,
-                          [p.name]: v ?? Number(p.default),
-                        },
-                      })
-                    }
-                  />
-                </Field>
-              ))}
+              {selected.params.map((p) => {
+                const current = config.strategyParams[p.name] ?? p.default
+                const setParam = (value: number | string) =>
+                  onChange({
+                    strategyParams: { ...config.strategyParams, [p.name]: value },
+                  })
+
+                if (p.type === 'choice') {
+                  return (
+                    <Field key={p.name} label={p.label}>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(p.choices ?? []).map((choice) => (
+                          <Button
+                            key={choice}
+                            type="button"
+                            size="sm"
+                            variant={current === choice ? 'default' : 'secondary'}
+                            className="flex-1 px-2 text-xs"
+                            onClick={() => setParam(choice)}
+                          >
+                            {choice}
+                          </Button>
+                        ))}
+                      </div>
+                    </Field>
+                  )
+                }
+
+                return (
+                  <Field key={p.name} label={p.label}>
+                    <NumberInput
+                      min={p.min ?? undefined}
+                      max={p.max ?? undefined}
+                      decimals={p.integer ? 0 : 2}
+                      step={p.integer ? 1 : 0.1}
+                      value={typeof current === 'number' ? current : (p.default as number)}
+                      onChange={(v) => setParam(v ?? Number(p.default))}
+                    />
+                  </Field>
+                )
+              })}
             </div>
           )}
         </DrawerBody>
