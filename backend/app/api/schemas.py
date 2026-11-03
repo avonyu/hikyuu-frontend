@@ -32,6 +32,15 @@ class StrategyRequest(BaseModel):
     params: dict[str, float] = Field(default_factory=dict, description="脚本声明的参数")
 
 
+class OverlayQueryRequest(BaseModel):
+    """只算指标叠加线，不跑回测（前端实时叠加用）。"""
+
+    symbol: str = Field(..., description="标的代码，如 sh510300")
+    start: str = Field("2023-01-01", description="开始日期 YYYY-MM-DD")
+    end: str = Field("2024-12-31", description="结束日期 YYYY-MM-DD")
+    overlays: list[OverlayRequest] = Field(default_factory=list)
+
+
 class BacktestRequest(BaseModel):
     symbol: str = Field("sh510300", description="标的代码，如 sh510300")
     start: str = Field("2023-01-01", description="开始日期 YYYY-MM-DD")
@@ -65,6 +74,8 @@ class SymbolInfo(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+    # 引擎状态机：idle（未加载）| loading（加载中）| ready（就绪）| error（加载失败）
+    engine_state: str = "idle"
     engine_ready: bool
     loaded_symbols: int
     available_symbols: int

@@ -20,6 +20,7 @@ from app.api.schemas import (
     HealthResponse,
     JobCreated,
     MoneyRequest,
+    OverlayQueryRequest,
     OverlayRequest,
     SignalRequest,
     StrategyRequest,
@@ -34,6 +35,8 @@ from app.core.engine import (
     OverlaySpec,
     SignalSpec,
     StrategySpec,
+    build_query,
+    extract_overlays,
     load_hikyuu,
     run_backtest,
 )
@@ -59,19 +62,34 @@ _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="backtest")
 _sm = None
 _sm_lock = threading.Lock()
 
+# 引擎状态机：idle（未加载）→ loading（加载中）→ ready（就绪）/ error（加载失败）
+# 前端据此轮询 /api/health，实时反映引擎状态
+_engine_state = "idle"
+_engine_error: str | None = None
+
 
 def _get_stock_manager():
     """懒加载 StockManager（首次调用时读 HDF5，约 0.01s）。"""
-    global _sm
+    global _sm, _engine_state, _engine_error
     with _sm_lock:
         if _sm is None:
-            ini = write_hikyuu_ini()
-            symbols = [s["symbol"] for s in registered_symbols()]
-            # 交易日历依赖市场主指数，必须一并加载
-            for code in ("sh000001", "sh000300"):
-                if code not in symbols:
-                    symbols.append(code)
-            _sm = load_hikyuu(str(ini), symbols)
+            _engine_state = "loading"
+            _engine_error = None
+            try:
+                ini = write_hikyuu_ini()
+                symbols = [s["symbol"] for s in registered_symbols()]
+                # 交易日历依赖市场主指数，必须一并加载
+                for code in ("sh000001", "sh000300"):
+                    if code not in symbols:
+                        symbols.append(code)
+                _sm = load_hikyuu(str(ini), symbols)
+            except Exception as exc:  # noqa: BLE001
+                # 加载失败时保留错误信息，供 /api/health 上报，前端可见
+                _engine_state = "error"
+                _engine_error = f"{type(exc).__name__}: {exc}"
+                raise
+            else:
+                _engine_state = "ready"
         return _sm
 
 
@@ -202,21 +220,55 @@ def refresh_symbols() -> dict[str, Any]:
     return {"refreshed": len(results), "results": results}
 
 
+@app.post("/api/overlays")
+def compute_overlays(request: OverlayQueryRequest) -> dict[str, list[float]]:
+    """只计算指标叠加线，不跑回测。
+
+    前端勾选指标后调用本接口重画叠加线，避免为了换指标重跑整个回测。
+    指标值与回测结果里的完全一致（同一套 extract_overlays）。
+    """
+    sm = _get_stock_manager()
+    symbol = request.symbol.lower()
+    try:
+        stock = sm[symbol]
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"未找到标的 {symbol}") from exc
+
+    query = build_query(request.start, request.end)
+    kdata = stock.get_kdata(query)
+    specs = [OverlaySpec(type=o.type, n=o.n, key=o.key) for o in request.overlays]
+    try:
+        return extract_overlays(kdata, specs)
+    except EngineError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """引擎状态。"""
+    """引擎状态。
+
+    引擎在首次回测时懒加载，因此这里上报的是实时状态，
+    前端轮询本接口即可看到引擎由「待加载」变为「就绪」。
+    """
     available = catalog.list_all()
     ready = _sm is not None
     loaded = 0
     if ready and _sm is not None:
         loaded = len(list(_sm))
+    if ready:
+        detail = None
+    elif _engine_state == "error":
+        detail = _engine_error or "引擎加载失败"
+    else:
+        detail = "引擎尚未加载，首次回测时会自动初始化"
     return HealthResponse(
-        status="ok",
+        status="ok" if _engine_state != "error" else "error",
+        engine_state="ready" if ready else _engine_state,
         engine_ready=ready,
         loaded_symbols=loaded,
         available_symbols=len(available),
         cost_models=COST_MODEL_LABELS,
-        detail=None if ready else "引擎尚未加载，首次回测时会自动初始化",
+        detail=detail,
     )
 
 

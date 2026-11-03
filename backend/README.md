@@ -69,7 +69,8 @@ uv run uvicorn app.api.server:app --reload --port 8000
 | GET | `/api/symbols` | 本地标的清单 |
 | POST | `/api/symbols/refresh` | 触发增量更新 |
 | GET | `/api/strategies` | 自定义策略脚本清单 |
-| GET | `/api/health` | 引擎状态 |
+| POST | `/api/overlays` | 只算指标叠加线（不跑回测，用于前端实时叠加） |
+| GET | `/api/health` | 引擎状态（`engine_state`：idle / loading / ready / error） |
 
 ## 自定义策略
 
