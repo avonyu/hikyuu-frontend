@@ -56,7 +56,7 @@ bun run dev
 ## 功能
 
 - **标的**：本地已导入的 ETF / 指数清单
-- **信号**：双均线交叉、单均线
+- **信号**：双均线交叉、单均线，或 `backend/strategies/*.py` 自定义脚本
 - **资金管理**：固定股数、固定比例
 - **费率**：内置 A 股费率模型（股票 2015 前 / 2017 起 / ETF / 零费用）
 - **风控**：止损、止盈、滑点
@@ -69,10 +69,12 @@ bun run dev
 backend/
   app/
     core/engine.py      Hikyuu 3.0 API 适配层（隔离版本差异）
+    core/strategy_loader.py  自定义策略脚本加载（按 mtime 热更新）
     data/sources.py     行情数据源适配（akshare / 腾讯指数源）
     data/importer.py    HDF5 写入 + SQLite 注册
     data/bootstrap.py   数据初始化与增量更新
     api/server.py       FastAPI 应用与作业队列
+  strategies/           自定义策略脚本（*.py，见其 README）
   scripts/
     seed_data.py        拉取行情入库
     fix_names.py        补齐标的名称
@@ -116,7 +118,8 @@ Hikyuu 自带的行情通道（TDX / pytdx）目前已失效——实测 104 个
 
 ```bash
 # 导入 / 增量更新行情
-uv run python scripts/seed_data.py --symbols sh510300 --incremental
+uv run python scripts/seed_data.py --symbols sh510300 --incremental --end 20261103
+# 增量是「合并」语义：只补最后一段并按日期合并，不会丢历史；--end 请换成当天
 
 # 个股、深市指数：类别按代码段自动识别（ETF / STOCK / INDEX）
 uv run python scripts/seed_data.py --symbols sh600519,sz000001
