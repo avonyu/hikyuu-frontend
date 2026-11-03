@@ -188,10 +188,13 @@ def extract_overlays(kdata, overlays: list[OverlaySpec]) -> dict[str, list[float
         elif kind == "rsi":
             indicator = RSI(close, n=n)
         elif kind == "macd":
-            macd = MACD(close, n=n, m1=12, m2=26)
-            result[f"{key}_macd"] = [float(macd.macd[i]) for i in range(len(macd.macd))]
-            result[f"{key}_diff"] = [float(macd.diff[i]) for i in range(len(macd.diff))]
-            result[f"{key}_dea"] = [float(macd.dea[i]) for i in range(len(macd.dea))]
+            # Hikyuu 的 MACD 签名是 (data, n1, n2, n3)：短/长 EMA 周期 + 信号线平滑周期
+            # 三个结果集依次是：0=BAR(DIFF-DEA)、1=DIFF、2=DEA
+            macd = MACD(close, n1=n, n2=26, n3=9)
+            bar, diff, dea = (macd.get_result(i) for i in range(3))
+            result[f"{key}_macd"] = [float(bar[i]) for i in range(len(bar))]
+            result[f"{key}_diff"] = [float(diff[i]) for i in range(len(diff))]
+            result[f"{key}_dea"] = [float(dea[i]) for i in range(len(dea))]
             continue
         else:
             raise EngineError(f"未知的指标类型: {kind}")
